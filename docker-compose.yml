@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: project_z
+      POSTGRES_USER: project_z
+      POSTGRES_PASSWORD: project_z
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U project_z -d project_z"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - project_z_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  project_z_postgres_data:
