@@ -6,6 +6,7 @@ import { ArrowUpRight, Compass, Layers3, Sparkles } from "lucide-react";
 import {
   newHomepageConcepts,
   originalHomepageConcepts,
+  refinedHomepageConcepts,
   thirdHomepageConcepts,
   type HomepageConceptDefinition,
 } from "@/components/homepage-concepts/catalog";
@@ -13,7 +14,7 @@ import { BRAND_NAME } from "@/lib/brand";
 
 export const metadata: Metadata = {
   title: "Homepage Concept Gallery",
-  description: `Nine distinct homepage directions for ${BRAND_NAME}.`,
+  description: `Eleven distinct homepage directions for ${BRAND_NAME}.`,
   robots: {
     index: false,
     follow: false,
@@ -48,7 +49,7 @@ export default function HomepageConceptGallery() {
             className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 text-sm font-semibold transition-colors hover:border-[#B8D9FF] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8D9FF]"
             href="/"
           >
-            Live homepage
+            Current homepage
             <ArrowUpRight aria-hidden="true" className="h-4 w-4" />
           </Link>
         </nav>
@@ -60,12 +61,12 @@ export default function HomepageConceptGallery() {
             <div>
               <p className="inline-flex min-h-8 items-center gap-2 rounded-full bg-[#B8D9FF] px-3 text-xs font-bold uppercase tracking-[0.18em] text-[#0D1117]">
                 <Layers3 aria-hidden="true" className="h-3.5 w-3.5" />
-                Nine complete directions
+                Eleven complete directions
               </p>
               <h1 className="mt-7 max-w-5xl text-[clamp(3.1rem,8vw,7.9rem)] font-black leading-[0.86] tracking-[-0.065em]">
                 One local promise.
                 <span className="block text-[#FF7A45]">
-                  Nine visual worlds.
+                  Eleven visual worlds.
                 </span>
               </h1>
             </div>
@@ -82,6 +83,13 @@ export default function HomepageConceptGallery() {
           </div>
         </section>
 
+        <ConceptGroup
+          concepts={refinedHomepageConcepts}
+          description="The clearest product hierarchy from the exploration: discovery first, booking visible, planning close at hand, and transport in context."
+          eyebrow="Refined recommendation"
+          featured
+          title="Pasadya, brought into focus"
+        />
         <ConceptGroup
           concepts={thirdHomepageConcepts}
           description="Three premium systems shaped around the journey, local culture, and the rhythm of a day."
@@ -132,12 +140,14 @@ function ConceptGroup({
   concepts,
   description,
   eyebrow,
+  featured = false,
   muted = false,
   title,
 }: {
   concepts: readonly HomepageConceptDefinition[];
   description: string;
   eyebrow: string;
+  featured?: boolean;
   muted?: boolean;
   title: string;
 }) {
@@ -172,9 +182,16 @@ function ConceptGroup({
           </p>
         </div>
 
-        <div className="mt-8 grid gap-5 lg:grid-cols-3">
+        <div
+          className={`mt-8 grid gap-5 ${featured ? "lg:grid-cols-1" : "lg:grid-cols-3"}`}
+        >
           {concepts.map((concept, index) => (
-            <ConceptCard concept={concept} index={index} key={concept.id} />
+            <ConceptCard
+              concept={concept}
+              featured={featured}
+              index={index}
+              key={concept.id}
+            />
           ))}
         </div>
       </div>
@@ -184,36 +201,46 @@ function ConceptGroup({
 
 function ConceptCard({
   concept,
+  featured = false,
   index,
 }: {
   concept: HomepageConceptDefinition;
+  featured?: boolean;
   index: number;
 }) {
-  const isLatest = concept.generation === "third";
+  const isLatest =
+    concept.generation === "third" || concept.generation === "refined";
   const badge =
-    concept.generation === "third"
+    concept.generation === "refined"
       ? {
-          className: "bg-[#FF7A45] text-[#0D1117]",
-          label: "Latest direction",
+          className: "bg-[#B8D9FF] text-[#0D1117]",
+          label: "Refined recommendation",
         }
-      : concept.generation === "new"
+      : concept.generation === "third"
         ? {
-            className: "bg-[#F4F26A] text-[#0D1117]",
-            label: "Second wave",
+            className: "bg-[#FF7A45] text-[#0D1117]",
+            label: "Latest direction",
           }
-        : {
-            className: "bg-[#0D1117]/75 text-white backdrop-blur",
-            label: "Original",
-          };
+        : concept.generation === "new"
+          ? {
+              className: "bg-[#F4F26A] text-[#0D1117]",
+              label: "Second wave",
+            }
+          : {
+              className: "bg-[#0D1117]/75 text-white backdrop-blur",
+              label: "Original",
+            };
 
   return (
     <article className="group relative overflow-hidden rounded-[1.75rem] bg-[#0D1117] text-[#F5F0E8] shadow-[0_24px_70px_rgba(13,17,23,0.15)] ring-1 ring-white/10">
       <Link
         aria-label={`Open ${concept.title} homepage concept`}
-        className="block focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#B8D9FF] focus-visible:ring-inset"
+        className={`${featured ? "grid lg:grid-cols-[1.25fr_.75fr]" : "block"} focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#B8D9FF] focus-visible:ring-inset`}
         href={concept.href}
       >
-        <div className="relative aspect-[4/3] overflow-hidden bg-[#202833]">
+        <div
+          className={`relative overflow-hidden bg-[#202833] ${featured ? "aspect-[4/3] lg:aspect-auto lg:min-h-[520px]" : "aspect-[4/3]"}`}
+        >
           <Image
             alt=""
             className="object-cover transition duration-700 group-hover:scale-[1.035] group-focus-within:scale-[1.035] motion-reduce:transition-none"
@@ -235,7 +262,9 @@ function ConceptCard({
           </div>
         </div>
 
-        <div className="p-6 sm:p-7">
+        <div
+          className={`p-6 sm:p-7 ${featured ? "flex flex-col justify-center lg:p-12" : ""}`}
+        >
           <div className="flex items-start justify-between gap-4">
             <h3 className="text-3xl font-black tracking-[-0.04em]">
               {concept.title}

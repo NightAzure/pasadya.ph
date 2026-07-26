@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import {
+  Instrument_Sans,
+  Inter,
+  Newsreader,
+  Source_Serif_4,
+} from "next/font/google";
 
 import { BRAND_DESCRIPTION, BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 import { cn } from "@/lib/utils";
@@ -9,6 +14,25 @@ import "./globals.css";
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+  display: "swap",
+});
+
+const instrumentSans = Instrument_Sans({
+  subsets: ["latin"],
+  variable: "--font-field-guide-sans",
+  display: "swap",
+});
+
+const fieldGuideDisplay = Newsreader({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  variable: "--font-field-guide-display",
+  display: "swap",
+});
+
+const daylightDisplay = Source_Serif_4({
+  subsets: ["latin"],
+  variable: "--font-daylight-display",
   display: "swap",
 });
 
@@ -59,7 +83,13 @@ export default function RootLayout({
   return (
     <html data-scroll-behavior="smooth" lang="en-PH">
       <body
-        className={cn(inter.variable, "min-h-screen font-sans antialiased")}
+        className={cn(
+          instrumentSans.variable,
+          fieldGuideDisplay.variable,
+          inter.variable,
+          daylightDisplay.variable,
+          "min-h-screen font-sans antialiased",
+        )}
       >
         <a className="skip-link" href="#main-content">
           Skip to content

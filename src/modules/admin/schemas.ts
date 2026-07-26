@@ -152,6 +152,76 @@ export const adminListingMergeSchema = z.object({
   archiveSource: z.boolean().default(true),
 });
 
+export const adminLocationRepairSchema = z
+  .object({
+    latitude: z.coerce.number().min(-90).max(90),
+    longitude: z.coerce.number().min(-180).max(180),
+    canonicalAreaId: z.string().uuid().nullable().optional(),
+    resolvedAddress: z.string().trim().min(3).max(500).optional(),
+    evidenceUrl: z.string().trim().url().max(500),
+    overrideReason: z.string().trim().max(500).optional(),
+    sourceNote: z.string().trim().min(3).max(500),
+  })
+  .superRefine((input, context) => {
+    const supported =
+      input.latitude >= 6.9 &&
+      input.latitude <= 7.566667 &&
+      input.longitude >= 125.233333 &&
+      input.longitude <= 125.791111;
+    if (!supported && !(input.overrideReason?.trim().length ?? 0)) {
+      context.addIssue({
+        code: "custom",
+        path: ["overrideReason"],
+        message:
+          "An admin override reason is required outside the supported region.",
+      });
+    }
+  });
+
+export const adminAreaAssignmentSchema = z.object({
+  listingIds: z.array(z.string().uuid()).min(1).max(100),
+  canonicalAreaId: z.string().uuid(),
+  notes: z.string().trim().min(3).max(500),
+});
+
+export const adminPrimaryRateRepairSchema = z.object({
+  rateId: z.string().uuid(),
+  makePrimary: z.boolean().default(true),
+  active: z.boolean().default(true),
+  evidenceUrl: z.string().trim().url().max(500),
+  notes: z.string().trim().min(3).max(500),
+});
+
+export const adminProvenanceRepairSchema = z
+  .object({
+    fieldName: z.enum(["location", "rate", "capacity", "hours", "attributes"]),
+    trustStatus: z.enum([
+      "owner_provided",
+      "team_verified",
+      "estimated",
+      "stale",
+      "unknown",
+    ]),
+    evidenceUrl: z.string().trim().url().max(500).optional(),
+    sourceNote: z.string().trim().min(12).max(500),
+  })
+  .superRefine((input, context) => {
+    if (input.trustStatus === "team_verified" && !input.evidenceUrl) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidenceUrl"],
+        message: "A reviewable evidence URL is required for team verification.",
+      });
+    }
+  });
+
+export const adminDuplicateReviewSchema = z.object({
+  sourceListingId: z.string().uuid(),
+  candidateListingId: z.string().uuid(),
+  decision: z.enum(["not_duplicate", "needs_merge_review"]),
+  notes: z.string().trim().min(3).max(500),
+});
+
 export const adminBookingActionSchema = z
   .object({
     action: z.enum(["cancel", "refund", "dispute_note"]),

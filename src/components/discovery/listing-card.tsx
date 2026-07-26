@@ -10,12 +10,14 @@ import {
 } from "lucide-react";
 
 import { CrowdBadge, StatusBadges } from "@/components/discovery/status-badge";
+import { formatBookingMoney } from "@/components/booking/contracts";
 import {
   categoryLabels,
   formatAddress,
   formatPrice,
   type DiscoveryListing,
 } from "@/modules/listings/discovery";
+import type { QuoteResult } from "@/modules/pricing/service";
 
 const amenityIcons = {
   pool: Waves,
@@ -26,17 +28,24 @@ const amenityIcons = {
 export function ListingCard({
   listing,
   priority = false,
+  quoteResult,
+  showingExactQuote = false,
 }: {
   listing: DiscoveryListing;
   priority?: boolean;
+  quoteResult?: QuoteResult;
+  showingExactQuote?: boolean;
 }) {
   const image = listing.media[0];
+  const href = quoteResult?.ok
+    ? quoteHref(`/place/${listing.slug}`, quoteResult.quote)
+    : `/place/${listing.slug}`;
 
   return (
     <article className="overflow-hidden rounded-md border bg-card shadow-sm transition-shadow hover:shadow-md">
       <Link
         className="group block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        href={`/place/${listing.slug}`}
+        href={href}
       >
         <div className="relative aspect-[16/10] overflow-hidden bg-muted">
           {image ? (
@@ -104,16 +113,79 @@ export function ListingCard({
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t pt-3">
-            <p className="text-sm">
-              <span className="font-semibold">
-                From {formatPrice(listing.priceMin)}
-              </span>
-            </p>
+            <QuoteSummary
+              listing={listing}
+              quoteResult={quoteResult}
+              showingExactQuote={showingExactQuote}
+            />
             <span className="text-sm font-medium text-primary">View place</span>
           </div>
         </div>
       </Link>
     </article>
+  );
+}
+
+function quoteHref(
+  path: string,
+  quote: Extract<QuoteResult, { ok: true }>["quote"],
+) {
+  const query = new URLSearchParams({
+    ratePlanId: quote.ratePlanId,
+    checkIn: quote.checkIn,
+    checkOut: quote.checkOut,
+    pax: String(quote.pax),
+    requestedUnits: String(quote.reservedUnits),
+  });
+  if (quote.durationHours)
+    query.set("durationHours", String(quote.durationHours));
+  return `${path}?${query.toString()}`;
+}
+
+function QuoteSummary({
+  listing,
+  quoteResult,
+  showingExactQuote,
+}: {
+  listing: DiscoveryListing;
+  quoteResult?: QuoteResult;
+  showingExactQuote: boolean;
+}) {
+  if (!showingExactQuote)
+    return (
+      <p className="text-sm">
+        <span className="font-semibold">
+          Starting at {formatPrice(listing.priceMin)}
+        </span>
+      </p>
+    );
+
+  if (!quoteResult?.ok)
+    return (
+      <p className="text-sm">
+        <span className="font-semibold">Exact total unavailable</span>
+        <span className="block text-xs text-muted-foreground">
+          Try another visit or view rate details.
+        </span>
+      </p>
+    );
+
+  const { quote } = quoteResult;
+  const label = quote.trust.verifiedTotalEligible
+    ? "Verified total"
+    : "Exact owner-provided total";
+  return (
+    <p className="text-sm">
+      <span className="block font-semibold">
+        {label}: {formatBookingMoney(quote.subtotal, quote.currency)}
+      </span>
+      <span className="block text-xs text-muted-foreground">
+        {quote.ratePlanName}
+        {quote.mandatoryFee.amount > 0
+          ? ` · includes ${formatBookingMoney(quote.mandatoryFee.amount, quote.currency)} ${quote.mandatoryFee.label ?? "mandatory fee"}`
+          : " · mandatory fees declared"}
+      </span>
+    </p>
   );
 }
 

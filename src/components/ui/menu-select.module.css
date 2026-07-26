@@ -1,0 +1,243 @@
+.root {
+  --menu-ink: #0b2344;
+  --menu-muted: #526071;
+  --menu-border: #d7c8b3;
+  --menu-surface: #fff9f2;
+  --menu-teal: #087f78;
+  --menu-teal-strong: #07655f;
+  --menu-ease: 160ms ease;
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  font-family:
+    var(--font-field-guide-sans), Instrument Sans, Arial, sans-serif;
+}
+
+.trigger {
+  display: inline-flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--menu-border);
+  background: #ffffff;
+  color: var(--menu-ink);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  font: inherit;
+  text-align: left;
+  transition:
+    border-color var(--menu-ease),
+    background-color var(--menu-ease),
+    box-shadow var(--menu-ease);
+}
+
+.trigger:hover {
+  border-color: rgba(8, 127, 120, 0.45);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--menu-teal);
+  outline-offset: 2px;
+}
+
+.trigger[aria-expanded="true"] {
+  border-color: var(--menu-teal);
+  box-shadow: 0 0 0 3px rgba(8, 127, 120, 0.12);
+}
+
+.pill .trigger {
+  border-radius: 999px;
+  padding: 0 14px 0 14px;
+}
+
+.field .trigger {
+  border-radius: 12px;
+  background: #ffffff;
+  border-color: #d7c8b3;
+  padding: 0 14px;
+  min-height: 46px;
+}
+
+.icon {
+  width: 42px;
+  flex: 0 0 auto;
+}
+
+.icon .trigger {
+  width: 42px;
+  min-height: 42px;
+  justify-content: center;
+  gap: 0;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.icon .leadingIcon {
+  width: 18px;
+  height: 18px;
+  color: var(--menu-ink);
+}
+
+.icon .leadingIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon .menu {
+  left: auto;
+  right: 0;
+  min-width: 180px;
+}
+
+.leadingIcon {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--menu-muted);
+}
+
+.leadingIcon svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.label {
+  flex: 0 0 auto;
+  color: var(--menu-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--menu-ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--menu-muted);
+  transition: transform var(--menu-ease);
+}
+
+.chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.trigger[aria-expanded="true"] .chevron {
+  transform: rotate(180deg);
+}
+
+.menu {
+  position: absolute;
+  z-index: 200;
+  top: calc(100% + 8px);
+  right: 0;
+  left: 0;
+  min-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--menu-border);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgba(11, 35, 68, 0.14);
+  padding: 6px;
+  list-style: none;
+  outline: none;
+  animation: menu-in 180ms ease both;
+}
+
+.pill .menu {
+  left: auto;
+  min-width: max(100%, 220px);
+}
+
+.option {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--menu-ink);
+  cursor: pointer;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  text-align: left;
+  transition: background-color var(--menu-ease), color var(--menu-ease);
+}
+
+.option:hover,
+.optionActive {
+  background: rgba(8, 127, 120, 0.08);
+  color: var(--menu-teal-strong);
+}
+
+.optionSelected {
+  background: var(--menu-teal);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.optionSelected:hover,
+.optionSelected.optionActive {
+  background: var(--menu-teal-strong);
+  color: #ffffff;
+}
+
+.check {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  opacity: 0;
+}
+
+.optionSelected .check {
+  opacity: 1;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@media (max-width: 639px) {
+  .pill .label,
+  .pill .leadingIcon {
+    display: none;
+  }
+
+  .pill .trigger {
+    padding-inline: 12px 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu,
+  .chevron,
+  .trigger {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}

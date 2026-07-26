@@ -1,6 +1,10 @@
 import { sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
+import {
+  rebuildListingStopAccess,
+  rebuildRouteEdges,
+} from "@/modules/transport/graph";
 
 type SeedStop = { name: string; lat: number; lng: number; terminal?: boolean };
 type SeedRoute = {
@@ -422,6 +426,8 @@ export async function seedTransportData() {
     `);
   }
 
+  await rebuildRouteEdges();
+  await rebuildListingStopAccess();
   return seededRoutes.length;
 }
 

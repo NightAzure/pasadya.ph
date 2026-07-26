@@ -3,7 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-import { updateOwnerListingAction } from "@/modules/portal/actions";
+import { LocationConfirmation } from "@/components/portal/location-confirmation";
+import { OwnerListingForm } from "@/components/portal/owner-listing-form";
+import { OwnerListingSubmit } from "@/components/portal/owner-listing-submit";
+import { StructuredListingDetails } from "@/components/portal/structured-listing-details";
+import { QuotePanel } from "@/components/pricing/quote-panel";
 import {
   getAllAmenities,
   getOwnerListing,
@@ -29,6 +33,23 @@ export default async function EditListingPage({
 
   const selectedAmenities = new Set(listing.amenities.map((item) => item.slug));
   const primaryRate = listing.ratePlans[0];
+  const locationWithinLaunchBounds =
+    listing.location !== null &&
+    listing.location.latitude >= 6.9 &&
+    listing.location.latitude <= 7.566667 &&
+    listing.location.longitude >= 125.233333 &&
+    listing.location.longitude <= 125.791111;
+  const rateComplete = Boolean(
+    primaryRate &&
+    primaryRate.billingPeriod &&
+    primaryRate.billingUnit &&
+    primaryRate.capacityPerUnit &&
+    primaryRate.inventoryUnitLabel &&
+    primaryRate.availableQuantity !== null &&
+    primaryRate.minPax !== null &&
+    primaryRate.maxPax !== null &&
+    primaryRate.includedPax !== null,
+  );
 
   return (
     <main
@@ -57,10 +78,7 @@ export default async function EditListingPage({
         </div>
       ) : null}
 
-      <form
-        action={updateOwnerListingAction}
-        className="space-y-5 rounded-md border bg-card p-4 shadow-sm sm:p-5"
-      >
+      <OwnerListingForm>
         <input name="listingId" type="hidden" value={listing.id} />
 
         <Section title="Basics">
@@ -124,6 +142,19 @@ export default async function EditListingPage({
               label="Website"
               name="contactWebsite"
               type="url"
+            />
+          </div>
+          <div className="mt-4">
+            <LocationConfirmation
+              address={[
+                listing.address.street,
+                listing.address.barangay,
+                listing.address.municipality,
+                listing.address.province,
+              ]
+                .filter(Boolean)
+                .join(", ")}
+              initial={listing.location}
             />
           </div>
         </Section>
@@ -196,8 +227,173 @@ export default async function EditListingPage({
               label="Rate description"
               name="rateDescription"
             />
+            <label className="block">
+              <span className="text-sm font-medium">Billing period</span>
+              <select
+                className="mt-2 min-h-12 w-full rounded-sm border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                defaultValue={primaryRate?.billingPeriod ?? "once"}
+                name="billingPeriod"
+              >
+                <option value="once">Once</option>
+                <option value="night">Per night</option>
+                <option value="day">Per day</option>
+                <option value="hour">Per hour</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium">Billing unit</span>
+              <select
+                className="mt-2 min-h-12 w-full rounded-sm border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                defaultValue={primaryRate?.billingUnit ?? "group"}
+                name="billingUnit"
+              >
+                <option value="inventory_unit">Inventory unit</option>
+                <option value="person">Person</option>
+                <option value="group">Group</option>
+              </select>
+            </label>
+            <Field
+              defaultValue={String(
+                primaryRate?.includedPax ?? primaryRate?.minPax ?? 1,
+              )}
+              label="Included guests"
+              name="includedPax"
+              required
+              type="number"
+            />
+            <Field
+              defaultValue={String((primaryRate?.extraPaxCharge ?? 0) / 100)}
+              label="Extra guest charge (PHP)"
+              name="extraPaxChargePhp"
+              required
+              type="number"
+            />
+            <Field
+              defaultValue={String(
+                primaryRate?.capacityPerUnit ?? primaryRate?.maxPax ?? 1,
+              )}
+              label="Capacity per unit"
+              name="capacityPerUnit"
+              required
+              type="number"
+            />
+            <Field
+              defaultValue={
+                primaryRate?.inventoryUnitLabel ??
+                "room, cottage, table, or package"
+              }
+              label="Inventory-unit label"
+              name="inventoryUnitLabel"
+              required
+            />
+            <Field
+              defaultValue={String(primaryRate?.minPax ?? 1)}
+              label="Minimum guests"
+              name="minPax"
+              required
+              type="number"
+            />
+            <Field
+              defaultValue={String(
+                primaryRate?.maxPax ?? primaryRate?.minPax ?? 1,
+              )}
+              label="Maximum guests"
+              name="maxPax"
+              required
+              type="number"
+            />
+            <Field
+              defaultValue={String(primaryRate?.availableQuantity ?? 0)}
+              label="Available quantity"
+              name="availableQuantity"
+              required
+              type="number"
+            />
+            <Field
+              defaultValue={String((primaryRate?.mandatoryFee ?? 0) / 100)}
+              label="One fixed per-booking mandatory fee (PHP)"
+              name="mandatoryFeePhp"
+              required
+              type="number"
+            />
+            <Field
+              defaultValue={primaryRate?.mandatoryFeeLabel ?? ""}
+              label="Fixed per-booking fee name"
+              name="mandatoryFeeLabel"
+              placeholder="e.g. environmental fee"
+            />
           </div>
+          <label className="mt-4 flex min-h-12 items-center gap-3 rounded-sm border bg-background px-3 text-sm">
+            <input
+              defaultChecked
+              name="feeDisclosureConfirmed"
+              required
+              type="checkbox"
+              value="true"
+            />
+            I confirm this rate has no mandatory charges beyond this one fixed
+            per-booking fee (use PHP 0 when none apply). Per-person, per-night,
+            percentage, and inclusive taxes need team review.
+          </label>
+          <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-muted-foreground">
+            Price declaration:{" "}
+            {primaryRate?.price
+              ? `Starting at ₱${(primaryRate.price / 100).toLocaleString("en-PH")}`
+              : "No starting price yet"}
+            , {primaryRate?.billingPeriod ?? "unknown"} /{" "}
+            {primaryRate?.billingUnit ?? "unknown"}. Capacity and availability
+            is owner-provided. Use the quote preview below for an exact total;
+            only fresh team-verified data can later earn a Verified total label.
+          </p>
         </Section>
+
+        <StructuredListingDetails
+          category={listing.category}
+          attributes={listing.attributes}
+          special={listing.specialHours}
+          weekly={listing.weeklyHours}
+        />
+
+        <Section title="Search-data completeness">
+          <ul className="grid gap-2 text-sm">
+            <li
+              className={
+                locationWithinLaunchBounds ? "text-success" : "text-warning"
+              }
+            >
+              {locationWithinLaunchBounds ? "Complete" : "Needs attention"}:
+              confirmed launch-area location for map and area filters.
+            </li>
+            <li className={rateComplete ? "text-success" : "text-warning"}>
+              {rateComplete ? "Complete" : "Needs attention"}: capacity before
+              guest-capacity filters can include this listing.
+            </li>
+            <li
+              className={
+                listing.weeklyHours.length ? "text-success" : "text-warning"
+              }
+            >
+              {listing.weeklyHours.length ? "Complete" : "Needs attention"}:
+              hours before open-now filters can include this listing.
+            </li>
+            <li className="text-warning">
+              Route trust is currently unknown until the transport team verifies
+              a nearby stop.
+            </li>
+          </ul>
+        </Section>
+
+        {listing.ratePlans.length ? (
+          <QuotePanel
+            listingId={listing.id}
+            rates={listing.ratePlans.map((rate) => ({
+              id: rate.id,
+              name: rate.name,
+              billingPeriod: rate.billingPeriod,
+            }))}
+            title="Owner quote preview"
+          />
+        ) : null}
 
         <Section title="Photo upload">
           <p className="text-sm leading-6 text-muted-foreground">
@@ -218,10 +414,8 @@ export default async function EditListingPage({
           </div>
         </Section>
 
-        <Button className="w-full" size="lg" type="submit">
-          Save listing
-        </Button>
-      </form>
+        <OwnerListingSubmit />
+      </OwnerListingForm>
     </main>
   );
 }

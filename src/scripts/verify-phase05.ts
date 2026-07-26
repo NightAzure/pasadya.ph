@@ -472,8 +472,17 @@ async function ensureFixture(): Promise<Fixture> {
     sql`delete from rate_plans where listing_id = ${listingId}::uuid`,
   );
   await db.execute(sql`
-    insert into rate_plans (listing_id, name, type, price, price_unit, min_pax, active)
-    values (${listingId}::uuid, ${fixtureRateName}, 'overnight', 10000, 'per_night', 1, true)
+    insert into rate_plans (
+      listing_id, name, type, price, price_unit, billing_period, billing_unit,
+      included_pax, extra_pax_charge, capacity_per_unit, inventory_unit_label,
+      available_quantity, quote_eligibility, mandatory_fee, mandatory_fee_basis, fees_declared_at,
+      mandatory_charge_disclosure_status, pricing_trust_status, pricing_valid_until,
+      availability_trust_status, availability_valid_until, min_pax, active
+    ) values (
+      ${listingId}::uuid, ${fixtureRateName}, 'day_use', 10000, 'per_group', 'day', 'inventory_unit',
+      2, 0, 2, 'room', 5, 'eligible', 0, 'fixed_per_booking', now(), 'none', 'owner_provided', now() + interval '30 days',
+      'owner_provided', now() + interval '7 days', 1, true
+    )
   `);
   const ratePlan = await db.execute<{ id: string }>(sql`
     select id::text as id from rate_plans where listing_id = ${listingId}::uuid and name = ${fixtureRateName} limit 1
@@ -639,7 +648,7 @@ async function verifyDayUseQuote(api: DomainApi, fixture: Fixture) {
   assert(
     typeof quote === "object" &&
       quote !== null &&
-      (quote as Record<string, unknown>).days === 0,
+      (quote as Record<string, unknown>).days === 1,
     "Same-day day-use quote is supported",
   );
 }
@@ -889,6 +898,11 @@ async function resetFixture() {
   );
   await db.execute(sql`
     delete from payments where booking_id in (
+      select id from bookings where guest_email like ${`${fixturePrefix}-%@example.test`}
+    )
+  `);
+  await db.execute(sql`
+    delete from inventory_reservations where booking_id in (
       select id from bookings where guest_email like ${`${fixturePrefix}-%@example.test`}
     )
   `);

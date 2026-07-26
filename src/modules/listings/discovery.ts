@@ -125,6 +125,11 @@ export type SearchFilters = {
   location?: string;
   minPrice?: number;
   maxPrice?: number;
+  checkIn?: string;
+  checkOut?: string;
+  pax?: number;
+  requestedUnits?: number;
+  durationHours?: number;
   amenities?: string[];
   minRating?: number;
   bookingMode?: "inquiry" | "instant" | "none";

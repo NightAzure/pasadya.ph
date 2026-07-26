@@ -1,4 +1,5 @@
-export type HomepageConceptGeneration = "original" | "new" | "third";
+export type HomepageConceptGeneration =
+  "original" | "new" | "third" | "refined";
 
 export type HomepageConceptDefinition = {
   id:
@@ -10,7 +11,9 @@ export type HomepageConceptDefinition = {
     | "afterglow-social"
     | "pearl-monsoon"
     | "kinabuhi-index"
-    | "quiet-hours";
+    | "quiet-hours"
+    | "pasadya-daylight"
+    | "sunlit-field-guide";
   generation: HomepageConceptGeneration;
   href: `/homepage-concepts/${string}`;
   title: string;
@@ -21,6 +24,29 @@ export type HomepageConceptDefinition = {
 };
 
 export const homepageConcepts = [
+  {
+    id: "sunlit-field-guide",
+    generation: "refined",
+    href: "/homepage-concepts/sunlit-field-guide",
+    title: "Sunlit Field Guide",
+    summary:
+      "A paper-warm editorial homepage that turns discovery, saved places, and practical routes into one readable local field guide.",
+    palette: ["#F7F0E4", "#0B2344", "#087F78", "#E66F50", "#F1C35B"],
+    thumbnail:
+      "/homepage-concepts/shared-photography/samal-dock-desktop.webp",
+    tags: ["Editorial", "Responsive", "Journey-led"],
+  },
+  {
+    id: "pasadya-daylight",
+    generation: "refined",
+    href: "/homepage-concepts/pasadya-daylight",
+    title: "Pasadya Daylight",
+    summary:
+      "A search-first marketplace direction for comparing real local places, then planning how to get there.",
+    palette: ["#FFF9EF", "#202231", "#315CFF", "#0F766E", "#FF7048"],
+    thumbnail: "/homepage-concepts/shared-photography/samal-shore-desktop.webp",
+    tags: ["Recommended", "Marketplace", "Plan-ready"],
+  },
   {
     id: "gulf-lines",
     generation: "original",
@@ -136,4 +162,8 @@ export const newHomepageConcepts = homepageConcepts.filter(
 
 export const thirdHomepageConcepts = homepageConcepts.filter(
   (concept) => concept.generation === "third",
+);
+
+export const refinedHomepageConcepts = homepageConcepts.filter(
+  (concept) => concept.generation === "refined",
 );

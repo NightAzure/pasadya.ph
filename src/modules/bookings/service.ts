@@ -5,6 +5,10 @@ import { db } from "@/db/client";
 import { AuthorizationError } from "@/lib/rbac";
 import { uuidSchema } from "@/lib/validation";
 import { dispatchEvent } from "@/modules/notifications/service";
+import {
+  requireAuthoritativeQuote,
+  type AuthoritativeQuote,
+} from "@/modules/pricing/service";
 
 import {
   calculateRefund,
@@ -22,6 +26,8 @@ export const bookingInputSchema = z.object({
   checkIn: dateSchema,
   checkOut: dateSchema,
   pax: z.coerce.number().int().min(1).max(999),
+  requestedUnits: z.coerce.number().int().min(1).max(999).optional(),
+  durationHours: z.coerce.number().int().min(1).max(24).optional(),
   guestName: z.string().trim().min(2).max(120),
   guestPhone: z.string().trim().min(8).max(24).optional(),
   guestEmail: z.string().trim().email().max(180).optional(),
@@ -119,6 +125,9 @@ type BookingExecutor = {
   execute: typeof db.execute;
 };
 
+// Retained privately only to keep historical source context during the rate
+// migration. All live quote and booking paths call the authoritative engine.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function quoteWithAvailability(
   input: BookingInput,
   expectedMode?: "inquiry" | "instant",
@@ -243,9 +252,11 @@ async function quoteWithAvailability(
   };
 }
 
-export async function quoteBooking(input: unknown): Promise<BookingQuote> {
+export async function quoteBooking(
+  input: unknown,
+): Promise<AuthoritativeQuote> {
   const parsed = bookingInputSchema.parse(input);
-  return (await quoteWithAvailability(parsed)).quote;
+  return (await requireAuthoritativeQuote(parsed)).quote;
 }
 
 async function createStoredBooking(
@@ -257,7 +268,14 @@ async function createStoredBooking(
   const userId = uuidSchema.parse(guestId);
 
   const booking = await db.transaction(async (tx) => {
-    const { quote } = await quoteWithAvailability(parsed, mode, tx);
+    const { quote, serviceDates } = await requireAuthoritativeQuote(
+      parsed,
+      tx,
+      {
+        lockInventory: true,
+        expectedMode: mode,
+      },
+    );
     const expiresAt = new Date(
       Date.now() + (mode === "inquiry" ? 48 : 24) * 60 * 60_000,
     );
@@ -265,16 +283,23 @@ async function createStoredBooking(
       insert into bookings (
         listing_id, user_id, rate_plan_id, status, check_in, check_out, pax,
         guest_name, guest_phone, guest_email, special_requests, subtotal,
-        downpayment_amount, balance_due, currency, expires_at
+        downpayment_amount, balance_due, reserved_units, quote_version, quote_snapshot, currency, expires_at
       ) values (
         ${parsed.listingId}::uuid, ${userId}::uuid, ${parsed.ratePlanId}::uuid, 'draft'::booking_status,
         ${parsed.checkIn}::date, ${parsed.checkOut}::date, ${parsed.pax},
         ${parsed.guestName}, ${parsed.guestPhone ?? null}, ${parsed.guestEmail ?? null}, ${parsed.specialRequests ?? null},
-        ${quote.subtotal}, ${quote.downpaymentAmount}, ${quote.balanceDue}, 'PHP', ${expiresAt}
+        ${quote.subtotal}, ${quote.downpaymentAmount}, ${quote.balanceDue}, ${quote.reservedUnits}, ${quote.quoteVersion}, ${JSON.stringify(quote)}::jsonb, 'PHP', ${expiresAt}
       ) returning id::text
     `);
     const bookingId = inserted.rows[0]?.id;
     if (!bookingId) throw new Error("Booking could not be created.");
+
+    for (const serviceDate of serviceDates) {
+      await tx.execute(sql`
+        insert into inventory_reservations (booking_id, listing_id, rate_plan_id, service_date, units)
+        values (${bookingId}::uuid, ${parsed.listingId}::uuid, ${parsed.ratePlanId}::uuid, ${serviceDate}::date, ${quote.reservedUnits})
+      `);
+    }
 
     await transitionBookingStatus(tx, {
       bookingId,
@@ -505,10 +530,13 @@ export async function listOwnerBookings(actorId: string) {
 export async function createBooking(
   input: {
     listingId: string;
-    ratePlanName: string;
+    ratePlanId?: string;
+    ratePlanName?: string;
     checkIn: string;
     checkOut: string;
     pax: number;
+    requestedUnits?: number;
+    durationHours?: number;
     guestName: string;
     guestPhone?: string;
     guestEmail?: string;
@@ -522,7 +550,10 @@ export async function createBooking(
   }>(sql`
     select rp.id::text as id, l.booking_mode as mode
     from rate_plans rp join listings l on l.id = rp.listing_id
-    where rp.listing_id = ${uuidSchema.parse(input.listingId)}::uuid and rp.name = ${input.ratePlanName} and rp.active = true limit 1
+    where rp.listing_id = ${uuidSchema.parse(input.listingId)}::uuid
+      and rp.active = true
+      and (${input.ratePlanId ? sql`rp.id = ${uuidSchema.parse(input.ratePlanId)}::uuid` : sql`rp.name = ${input.ratePlanName ?? ""}`})
+    limit 1
   `);
   const selected = rate.rows[0];
   if (!selected)

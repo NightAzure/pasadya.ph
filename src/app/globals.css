@@ -3,27 +3,27 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --primary: 190 91% 36%;
+  --background: 36 71% 95%;
+  --foreground: 222 51% 16%;
+  --card: 40 100% 99%;
+  --card-foreground: 222 51% 16%;
+  --primary: 219 62% 24%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 38 92% 50%;
-  --accent-foreground: 222 47% 11%;
+  --secondary: 36 24% 93%;
+  --secondary-foreground: 222 51% 16%;
+  --muted: 36 24% 93%;
+  --muted-foreground: 216 16% 38%;
+  --accent: 38 84% 56%;
+  --accent-foreground: 222 51% 16%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
-  --success: 160 84% 39%;
+  --success: 176 88% 26%;
   --success-foreground: 0 0% 100%;
-  --warning: 38 92% 50%;
-  --warning-foreground: 222 47% 11%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 190 91% 36%;
+  --warning: 38 84% 56%;
+  --warning-foreground: 222 51% 16%;
+  --border: 35 16% 84%;
+  --input: 35 16% 84%;
+  --ring: 219 59% 35%;
 }
 
 * {
@@ -31,6 +31,7 @@
 }
 
 html {
+  color-scheme: light;
   scroll-behavior: smooth;
 }
 
@@ -52,6 +53,12 @@ html {
 body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  font-family:
+    var(--font-field-guide-sans),
+    var(--font-inter),
+    Inter,
+    Arial,
+    sans-serif;
 }
 
 .skip-link {
@@ -60,7 +67,7 @@ body {
   top: 1rem;
   z-index: 50;
   transform: translateY(-150%);
-  border-radius: 6px;
+  border-radius: 8px 8px 16px 8px;
   background: hsl(var(--foreground));
   color: hsl(var(--background));
   padding: 0.75rem 1rem;
@@ -68,6 +75,6 @@ body {
   font-weight: 600;
 }
 
-.skip-link:focus {
+.skip-link:focus-visible {
   transform: translateY(0);
 }

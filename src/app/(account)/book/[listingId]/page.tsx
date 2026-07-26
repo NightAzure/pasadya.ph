@@ -23,6 +23,10 @@ export default async function BookingPage({
   if (!listing) notFound();
   const query = (await searchParams) ?? {};
   const error = first(query.error);
+  const initialQuote = quotePrefillFromParams(
+    query,
+    listing.ratePlans.map((rate) => rate.id),
+  );
 
   if (listing.bookingMode === "none") {
     return (
@@ -97,7 +101,7 @@ export default async function BookingPage({
             </div>
           ) : null}
           <div className="mt-5">
-            <BookingForm listing={formListing} />
+            <BookingForm initialQuote={initialQuote} listing={formListing} />
           </div>
         </section>
         <aside className="hidden lg:block lg:sticky lg:top-24 lg:self-start">
@@ -124,4 +128,49 @@ export default async function BookingPage({
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function quotePrefillFromParams(
+  params: Record<string, string | string[] | undefined>,
+  ratePlanIds: string[],
+) {
+  const ratePlanId = first(params.ratePlanId);
+  const checkIn = first(params.checkIn);
+  const checkOut = first(params.checkOut);
+  const pax = positiveInteger(first(params.pax));
+  const requestedUnits = positiveInteger(first(params.requestedUnits));
+  const durationHours = positiveInteger(first(params.durationHours));
+  if (
+    !ratePlanId ||
+    !ratePlanIds.includes(ratePlanId) ||
+    !validDate(checkIn) ||
+    !validDate(checkOut) ||
+    !pax ||
+    !requestedUnits
+  )
+    return undefined;
+  return {
+    ratePlanId,
+    checkIn,
+    checkOut,
+    pax,
+    requestedUnits,
+    ...(durationHours ? { durationHours } : {}),
+  };
+}
+
+function validDate(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
+function positiveInteger(value: string | undefined) {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 999
+    ? parsed
+    : undefined;
 }

@@ -14,10 +14,12 @@ import {
 
 export type CreateBookingInput = {
   listingId: string;
-  ratePlanName: string;
+  ratePlanId: string;
   checkIn: string;
   checkOut: string;
   pax: number;
+  requestedUnits?: number;
+  durationHours?: number;
   guestName: string;
   guestPhone: string;
   guestEmail: string;

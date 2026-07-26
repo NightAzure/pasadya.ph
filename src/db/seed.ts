@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 
 import { db, pool } from "@/db/client";
+import { backfillSearch2DataTrust } from "@/db/search2-data-trust";
 import { seedTransportData } from "@/modules/transport/seed-data";
 
 const amenities = [
@@ -509,6 +510,11 @@ async function run() {
 
   const seededRoutes = await seedTransportData();
   console.log(`Seeded transport routes: ${seededRoutes}`);
+
+  const dataTrust = await backfillSearch2DataTrust();
+  console.log(
+    `Search 2.0 data-trust backfill: ${dataTrust.mappedListings} newly mapped, ${dataTrust.unmappableListings} unmappable`,
+  );
 
   const count = await db.execute<{ count: string }>(sql`
     select count(*)::text as count from amenities

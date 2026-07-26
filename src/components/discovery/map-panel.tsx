@@ -5,8 +5,18 @@ import {
   formatAddress,
   type DiscoveryListing,
 } from "@/modules/listings/discovery";
+import { formatBookingMoney } from "@/components/booking/contracts";
+import type { QuoteResult } from "@/modules/pricing/service";
 
-export function MapPanel({ listings }: { listings: DiscoveryListing[] }) {
+export function MapPanel({
+  listings,
+  quotesByListing,
+  showingExactQuotes = false,
+}: {
+  listings: DiscoveryListing[];
+  quotesByListing?: Record<string, QuoteResult>;
+  showingExactQuotes?: boolean;
+}) {
   const pinnedListings = listings.filter(
     (listing) => listing.lat !== null && listing.lng !== null,
   );
@@ -29,8 +39,8 @@ export function MapPanel({ listings }: { listings: DiscoveryListing[] }) {
       <div className="absolute left-4 top-4 rounded-md border bg-card/95 p-3 shadow-sm">
         <p className="text-sm font-semibold">Seeded map view</p>
         <p className="mt-1 max-w-52 text-xs leading-5 text-muted-foreground">
-          Pins are positioned from listing coordinates. Live OSM tiles are
-          pending the Phase 03 map provider decision.
+          Pins are positioned from listing coordinates. The interactive tile map
+          remains deferred; address lookup uses MapTiler separately.
         </p>
       </div>
 
@@ -45,17 +55,44 @@ export function MapPanel({ listings }: { listings: DiscoveryListing[] }) {
 
       {pinnedListings.map((listing) => {
         const position = pinPosition(listing, bounds);
+        const quoteResult = quotesByListing?.[listing.id];
+        const exactQuote = quoteResult?.ok ? quoteResult.quote : null;
+        const verifiedQuote = exactQuote?.trust.verifiedTotalEligible
+          ? exactQuote
+          : null;
+        const pinDetail = verifiedQuote
+          ? `Verified total ${formatBookingMoney(verifiedQuote.subtotal, verifiedQuote.currency)}`
+          : showingExactQuotes
+            ? exactQuote
+              ? "Exact owner-provided total is available in listing details"
+              : "Exact total unavailable for selected trip"
+            : "Starting price is shown in listing details";
 
         return (
           <a
-            aria-label={`${listing.name}, ${formatAddress(listing.address)}`}
-            className="absolute z-10 flex min-h-11 min-w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            href={`/place/${listing.slug}`}
+            aria-label={`${listing.name}, ${formatAddress(listing.address)}. ${pinDetail}`}
+            className={`absolute z-10 flex min-h-11 min-w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+              verifiedQuote ? "rounded-md px-2" : "rounded-full"
+            }`}
+            href={
+              exactQuote
+                ? quoteHref(`/place/${listing.slug}`, exactQuote)
+                : `/place/${listing.slug}`
+            }
             key={listing.id}
             style={{ left: `${position.x}%`, top: `${position.y}%` }}
-            title={`${listing.name} - ${categoryLabels[listing.category]}`}
+            title={`${listing.name} - ${categoryLabels[listing.category]} - ${pinDetail}`}
           >
-            <MapPin aria-hidden="true" className="h-5 w-5 fill-primary" />
+            {verifiedQuote ? (
+              <span className="text-xs font-semibold" aria-hidden="true">
+                {formatBookingMoney(
+                  verifiedQuote.subtotal,
+                  verifiedQuote.currency,
+                )}
+              </span>
+            ) : (
+              <MapPin aria-hidden="true" className="h-5 w-5 fill-primary" />
+            )}
           </a>
         );
       })}
@@ -70,6 +107,22 @@ export function MapPanel({ listings }: { listings: DiscoveryListing[] }) {
       </div>
     </section>
   );
+}
+
+function quoteHref(
+  path: string,
+  quote: Extract<QuoteResult, { ok: true }>["quote"],
+) {
+  const query = new URLSearchParams({
+    ratePlanId: quote.ratePlanId,
+    checkIn: quote.checkIn,
+    checkOut: quote.checkOut,
+    pax: String(quote.pax),
+    requestedUnits: String(quote.reservedUnits),
+  });
+  if (quote.durationHours)
+    query.set("durationHours", String(quote.durationHours));
+  return `${path}?${query.toString()}`;
 }
 
 function getBounds(listings: DiscoveryListing[]) {

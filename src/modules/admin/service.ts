@@ -6,12 +6,17 @@ import { getPortalActor } from "@/modules/portal/service";
 
 import {
   adminBookingActionSchema,
+  adminDuplicateReviewSchema,
+  adminAreaAssignmentSchema,
   adminBookingListQuerySchema,
+  adminLocationRepairSchema,
   adminListingCreateSchema,
   adminListingEditChangesSchema,
   adminListingMergeSchema,
   adminListingUpdateSchema,
   adminListingsQuerySchema,
+  adminPrimaryRateRepairSchema,
+  adminProvenanceRepairSchema,
   moderationListQuerySchema,
   moderationResolutionSchema,
 } from "./schemas";
@@ -364,6 +369,15 @@ export async function updateAdminListing(
           : "draft");
 
   return db.transaction(async (tx) => {
+    if (status === "published") {
+      const issues = await getListingPublishIssues(parsedListingId, tx);
+      if (issues.length) {
+        throw new AdminDomainError(
+          `Cannot publish until: ${issues.join(" ")}`,
+          409,
+        );
+      }
+    }
     const listing = await updateListingRecord(
       tx,
       parsedListingId,
@@ -387,6 +401,423 @@ export async function updateAdminListing(
     });
     return listing;
   });
+}
+
+export type DataQualityItem = {
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+  latitude: number | null;
+  longitude: number | null;
+  locationTrust: string;
+  address: Record<string, unknown> | null;
+  canonicalAreaName: string | null;
+  primaryRateComplete: boolean;
+  hoursComplete: boolean;
+  provenanceComplete: boolean;
+  primaryRateId: string | null;
+  nearestStopM: number | null;
+  routeFreshness: "fresh" | "stale" | "unknown";
+};
+
+export async function getDataQualityItems(): Promise<DataQualityItem[]> {
+  const result = await db.execute<DataQualityItem>(sql`
+    select l.id::text as id, l.name, l.category, l.status, l.address,
+      case when l.location is null then null else ST_Y(l.location::geometry) end as latitude,
+      case when l.location is null then null else ST_X(l.location::geometry) end as longitude,
+      l.location_verification_status as "locationTrust", a.name as "canonicalAreaName",
+      (select rp.id::text from rate_plans rp where rp.listing_id = l.id and rp.active order by rp.is_primary desc, rp.sort_order, rp.id limit 1) as "primaryRateId",
+      exists(select 1 from rate_plans rp where rp.listing_id = l.id and rp.active and rp.is_primary
+        and rp.billing_period is not null and rp.billing_unit is not null and rp.capacity_per_unit > 0
+        and rp.available_quantity is not null and rp.max_pax is not null) as "primaryRateComplete",
+      exists(select 1 from listing_opening_hours h where h.listing_id = l.id) as "hoursComplete",
+      exists(select 1 from listing_field_provenance fp where fp.listing_id = l.id and fp.is_canonical) as "provenanceComplete",
+      (select round(ST_Distance(l.location, rs.location))::integer from route_stops rs where l.location is not null order by l.location <-> rs.location limit 1) as "nearestStopM",
+      case when not exists(select 1 from transport_routes tr where tr.status = 'published'::transport_status) then 'unknown'
+           when exists(select 1 from transport_routes tr where tr.status = 'published'::transport_status and tr.last_verified_at >= now() - interval '30 days') then 'fresh'
+           else 'stale' end as "routeFreshness"
+    from listings l left join areas a on a.id = l.canonical_area_id
+    order by l.updated_at desc, l.name
+  `);
+  return result.rows;
+}
+
+export async function listAdminAreas() {
+  const result = await db.execute<{
+    id: string;
+    name: string;
+    type: string;
+  }>(sql`
+    select id::text as id, name, type from areas order by type, name
+  `);
+  return result.rows;
+}
+
+export type DuplicateCandidate = {
+  sourceId: string;
+  sourceName: string;
+  candidateId: string;
+  candidateName: string;
+  nameSimilarity: number;
+  distanceM: number;
+  lastDecision: "not_duplicate" | "needs_merge_review" | null;
+  reviewNotes: string | null;
+  reviewedAt: Date | null;
+  reviewerName: string | null;
+};
+
+export async function getDuplicateCandidates(): Promise<DuplicateCandidate[]> {
+  const result = await db.execute<DuplicateCandidate>(sql`
+    select a.id::text as "sourceId", a.name as "sourceName", b.id::text as "candidateId", b.name as "candidateName",
+      round(similarity(a.name, b.name)::numeric, 2)::float as "nameSimilarity",
+      round(ST_Distance(a.location, b.location))::integer as "distanceM",
+      duplicate_review.decision as "lastDecision",
+      duplicate_review.notes as "reviewNotes",
+      duplicate_review."reviewedAt" as "reviewedAt",
+      duplicate_review."reviewerName" as "reviewerName"
+    from listings a join listings b on a.id < b.id
+    left join lateral (
+      select al.changes ->> 'decision' as decision,
+        al.changes ->> 'notes' as notes,
+        al.created_at as "reviewedAt",
+        u.name as "reviewerName"
+      from audit_log al
+      left join users u on u.id = al.actor_id
+      where al.entity_type = 'listing'
+        and al.entity_id = a.id
+        and al.action = 'admin.data_quality.duplicate_review'
+        and al.changes ->> 'candidateListingId' = b.id::text
+      order by al.created_at desc
+      limit 1
+    ) duplicate_review on true
+    where a.location is not null and b.location is not null
+      and ST_DWithin(a.location, b.location, 1500)
+      and similarity(a.name, b.name) >= 0.35
+    order by similarity(a.name, b.name) desc, ST_Distance(a.location, b.location) asc
+    limit 100
+  `);
+  return result.rows;
+}
+
+export type DataQualityAudit = {
+  id: string;
+  action: string;
+  actorName: string | null;
+  changes: Record<string, unknown>;
+  createdAt: Date;
+};
+
+export async function getDataQualityAudits(
+  listingId: string,
+): Promise<DataQualityAudit[]> {
+  const parsedListingId = z.string().uuid().parse(listingId);
+  const result = await db.execute<DataQualityAudit>(sql`
+    select al.id::text as id, al.action, u.name as "actorName", al.changes, al.created_at as "createdAt"
+    from audit_log al left join users u on u.id = al.actor_id
+    where al.entity_type = 'listing' and al.entity_id = ${parsedListingId}::uuid
+      and (al.action like 'admin.data_quality.%' or al.action = 'listing.owner_update')
+    order by al.created_at desc limit 30
+  `);
+  return result.rows;
+}
+
+export async function repairAdminLocation(
+  listingId: string,
+  input: unknown,
+  actorId: string,
+) {
+  const parsedListingId = z.string().uuid().parse(listingId);
+  const parsed = adminLocationRepairSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const before = await tx.execute<{
+      location: unknown;
+      address: Record<string, unknown> | null;
+      canonicalAreaId: string | null;
+    }>(sql`
+      select case when location is null then null else json_build_object('latitude', ST_Y(location::geometry), 'longitude', ST_X(location::geometry)) end as location,
+        address, canonical_area_id::text as "canonicalAreaId"
+      from listings where id = ${parsedListingId}::uuid for update
+    `);
+    if (!before.rows[0]) throw new AdminDomainError("Listing not found.", 404);
+    if (parsed.canonicalAreaId) {
+      const area = await tx.execute(
+        sql`select 1 from areas where id = ${parsed.canonicalAreaId}::uuid`,
+      );
+      if (!area.rows[0])
+        throw new AdminDomainError("Canonical area not found.", 404);
+    }
+    await tx.execute(sql`
+      update listings set location = ST_SetSRID(ST_MakePoint(${parsed.longitude}, ${parsed.latitude}), 4326)::geography,
+        address = case
+          when ${parsed.resolvedAddress ?? null}::text is null then address
+          else jsonb_set(coalesce(address, '{}'::jsonb), '{displayName}', to_jsonb(${parsed.resolvedAddress ?? null}::text), true)
+        end,
+        canonical_area_id = coalesce(${parsed.canonicalAreaId ?? null}::uuid, canonical_area_id),
+        location_source = 'team'::location_source, location_accuracy = 'exact'::location_accuracy,
+        location_verification_status = 'team_verified'::listing_trust_status,
+        location_last_verified_at = now(), location_verified_by = ${actorId}::uuid,
+        location_override_reason = ${parsed.overrideReason?.trim() || null}, updated_at = now()
+      where id = ${parsedListingId}::uuid
+    `);
+    await upsertAdminProvenance(
+      tx,
+      parsedListingId,
+      "location",
+      "team_verified",
+      parsed.sourceNote,
+      actorId,
+      parsed.evidenceUrl,
+    );
+    await writeAudit(tx, {
+      actorId,
+      action: "admin.data_quality.location_repair",
+      entityType: "listing",
+      entityId: parsedListingId,
+      changes: {
+        before: before.rows[0],
+        after: {
+          latitude: parsed.latitude,
+          longitude: parsed.longitude,
+          canonicalAreaId:
+            parsed.canonicalAreaId ?? before.rows[0].canonicalAreaId,
+          resolvedAddress:
+            parsed.resolvedAddress ??
+            (typeof before.rows[0].address?.displayName === "string"
+              ? before.rows[0].address.displayName
+              : null),
+        },
+        overrideReason: parsed.overrideReason ?? null,
+        sourceNote: parsed.sourceNote,
+        evidenceUrl: parsed.evidenceUrl,
+      },
+    });
+  });
+}
+
+export async function assignAdminAreas(input: unknown, actorId: string) {
+  const parsed = adminAreaAssignmentSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const area = await tx.execute<{ name: string }>(
+      sql`select name from areas where id = ${parsed.canonicalAreaId}::uuid`,
+    );
+    if (!area.rows[0])
+      throw new AdminDomainError("Canonical area not found.", 404);
+    const requestedListingIds = new Set(parsed.listingIds);
+    const listings = await tx.execute<{ id: string }>(sql`
+      select id::text as id from listings
+      where id in (${sql.join(
+        Array.from(requestedListingIds).map(
+          (listingId) => sql`${listingId}::uuid`,
+        ),
+        sql`, `,
+      )})
+      for update
+    `);
+    if (listings.rows.length !== requestedListingIds.size) {
+      throw new AdminDomainError(
+        "One or more listings selected for area assignment were not found.",
+        404,
+      );
+    }
+    for (const listingId of parsed.listingIds) {
+      await tx.execute(
+        sql`update listings set canonical_area_id = ${parsed.canonicalAreaId}::uuid, updated_at = now() where id = ${listingId}::uuid`,
+      );
+      await writeAudit(tx, {
+        actorId,
+        action: "admin.data_quality.area_assign",
+        entityType: "listing",
+        entityId: listingId,
+        changes: {
+          canonicalAreaId: parsed.canonicalAreaId,
+          canonicalAreaName: area.rows[0].name,
+          notes: parsed.notes,
+        },
+      });
+    }
+  });
+}
+
+export async function repairAdminPrimaryRate(
+  listingId: string,
+  input: unknown,
+  actorId: string,
+) {
+  const parsedListingId = z.string().uuid().parse(listingId);
+  const parsed = adminPrimaryRateRepairSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const rate = await tx.execute<{ id: string }>(
+      sql`select id::text as id from rate_plans where id = ${parsed.rateId}::uuid and listing_id = ${parsedListingId}::uuid for update`,
+    );
+    if (!rate.rows[0])
+      throw new AdminDomainError("Rate does not belong to this listing.", 404);
+    if (parsed.makePrimary)
+      await tx.execute(
+        sql`update rate_plans set is_primary = false where listing_id = ${parsedListingId}::uuid and active`,
+      );
+    await tx.execute(
+      sql`update rate_plans set active = ${parsed.active}, is_primary = ${parsed.makePrimary && parsed.active} where id = ${parsed.rateId}::uuid`,
+    );
+    await upsertAdminProvenance(
+      tx,
+      parsedListingId,
+      "rate",
+      "team_verified",
+      parsed.notes,
+      actorId,
+      parsed.evidenceUrl,
+    );
+    await upsertAdminProvenance(
+      tx,
+      parsedListingId,
+      "capacity",
+      "team_verified",
+      parsed.notes,
+      actorId,
+      parsed.evidenceUrl,
+    );
+    await writeAudit(tx, {
+      actorId,
+      action: "admin.data_quality.primary_rate_repair",
+      entityType: "listing",
+      entityId: parsedListingId,
+      changes: {
+        rateId: parsed.rateId,
+        makePrimary: parsed.makePrimary,
+        active: parsed.active,
+        notes: parsed.notes,
+        evidenceUrl: parsed.evidenceUrl,
+      },
+    });
+  });
+}
+
+export async function repairAdminProvenance(
+  listingId: string,
+  input: unknown,
+  actorId: string,
+) {
+  const parsedListingId = z.string().uuid().parse(listingId);
+  const parsed = adminProvenanceRepairSchema.parse(input);
+  return db.transaction(async (tx) => {
+    await upsertAdminProvenance(
+      tx,
+      parsedListingId,
+      parsed.fieldName,
+      parsed.trustStatus,
+      parsed.sourceNote,
+      actorId,
+      parsed.evidenceUrl,
+    );
+    await writeAudit(tx, {
+      actorId,
+      action: "admin.data_quality.provenance_repair",
+      entityType: "listing",
+      entityId: parsedListingId,
+      changes: parsed,
+    });
+  });
+}
+
+export async function recordAdminDuplicateReview(
+  input: unknown,
+  actorId: string,
+) {
+  const parsed = adminDuplicateReviewSchema.parse(input);
+  if (parsed.sourceListingId === parsed.candidateListingId) {
+    throw new AdminDomainError("A listing cannot be reviewed against itself.");
+  }
+  return db.transaction(async (tx) => {
+    const listings = await tx.execute<{ id: string }>(sql`
+      select id::text as id from listings where id in (${parsed.sourceListingId}::uuid, ${parsed.candidateListingId}::uuid) for update
+    `);
+    if (listings.rows.length !== 2)
+      throw new AdminDomainError(
+        "Duplicate candidate listing was not found.",
+        404,
+      );
+    await writeAudit(tx, {
+      actorId,
+      action: "admin.data_quality.duplicate_review",
+      entityType: "listing",
+      entityId: parsed.sourceListingId,
+      changes: {
+        candidateListingId: parsed.candidateListingId,
+        decision: parsed.decision,
+        notes: parsed.notes,
+      },
+    });
+  });
+}
+
+async function getListingPublishIssues(
+  listingId: string,
+  executor: Pick<typeof db, "execute"> = db,
+) {
+  const result = await executor.execute<{
+    latitude: number | null;
+    longitude: number | null;
+    locationOverrideReason: string | null;
+    usableRate: boolean;
+  }>(sql`
+    select case when l.location is null then null else ST_Y(l.location::geometry) end as latitude,
+      case when l.location is null then null else ST_X(l.location::geometry) end as longitude,
+      l.location_override_reason as "locationOverrideReason",
+      exists(select 1 from rate_plans rp where rp.listing_id = l.id and rp.active and rp.is_primary
+        and rp.price >= 0 and rp.billing_period is not null and rp.billing_unit is not null
+        and rp.capacity_per_unit > 0 and rp.available_quantity is not null
+        and rp.min_pax <= rp.max_pax and rp.included_pax between rp.min_pax and rp.max_pax) as "usableRate"
+    from listings l where l.id = ${listingId}::uuid
+  `);
+  const listing = result.rows[0];
+  if (!listing) throw new AdminDomainError("Listing not found.", 404);
+  const issues: string[] = [];
+  if (
+    listing.latitude === null ||
+    listing.longitude === null ||
+    listing.latitude < 6.9 ||
+    listing.latitude > 7.566667 ||
+    listing.longitude < 125.233333 ||
+    listing.longitude > 125.791111
+  ) {
+    if (!listing.locationOverrideReason)
+      issues.push(
+        "set a valid Samal/Davao City coordinate or record an approved override.",
+      );
+  }
+  if (!listing.usableRate)
+    issues.push(
+      "add one usable primary rate with billing, capacity, guest, and quantity data.",
+    );
+  return issues;
+}
+
+async function upsertAdminProvenance(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  listingId: string,
+  fieldName: string,
+  trustStatus:
+    "owner_provided" | "team_verified" | "estimated" | "stale" | "unknown",
+  sourceNote: string,
+  actorId: string,
+  evidenceUrl?: string,
+) {
+  const source = await tx.execute<{ id: string }>(sql`
+    insert into listing_sources (listing_id, provider, source_url, rights_classification, retention_classification, last_checked_at, last_verified_at)
+    values (${listingId}::uuid, 'admin_data_quality', ${evidenceUrl ?? null}, 'team_collected'::source_rights_classification, 'retain'::source_retention_classification, now(), case when ${trustStatus} = 'team_verified' then now() else null end)
+    returning id::text as id
+  `);
+  const sourceId = source.rows[0]?.id;
+  if (!sourceId)
+    throw new AdminDomainError("Data source could not be recorded.");
+  await tx.execute(
+    sql`update listing_field_provenance set is_canonical = false, updated_at = now() where listing_id = ${listingId}::uuid and field_name = ${fieldName} and is_canonical`,
+  );
+  await tx.execute(sql`
+    insert into listing_field_provenance (listing_id, field_name, source_id, trust_status, is_canonical, verified_by, checked_at, source_note)
+    values (${listingId}::uuid, ${fieldName}, ${sourceId}::uuid, ${trustStatus}::listing_trust_status, true, ${actorId}::uuid, now(), ${sourceNote})
+  `);
 }
 
 export async function createAdminListing(input: unknown, actorId: string) {

@@ -12,6 +12,7 @@ import { MapPanel } from "@/components/discovery/map-panel";
 import { PhotoGallery } from "@/components/discovery/photo-gallery";
 import { CrowdBadge } from "@/components/discovery/status-badge";
 import { Button } from "@/components/ui/button";
+import { QuotePanel } from "@/components/pricing/quote-panel";
 import { TransportPlanner } from "@/components/transport/transport-planner";
 import { listingSlugSchema } from "@/lib/validation";
 import {
@@ -67,8 +68,10 @@ export async function generateMetadata({
 
 export default async function ListingDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { slug } = await params;
   const parsed = listingSlugSchema.safeParse(slug);
@@ -80,6 +83,10 @@ export default async function ListingDetailPage({
   if (!listing) {
     notFound();
   }
+  const quotePrefill = quotePrefillFromParams(
+    (await searchParams) ?? {},
+    listing.ratePlans.map((rate) => rate.id),
+  );
 
   const nearby = await getNearbyListings(listing);
   const community = await getListingCommunity(listing.id);
@@ -255,7 +262,9 @@ export default async function ListingDetailPage({
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <div className="rounded-md border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">Starts at</p>
+            <p className="text-sm text-muted-foreground">
+              Starting price — dates and guests not selected
+            </p>
             <p className="mt-1 flex items-center gap-1 text-2xl font-semibold">
               <PhilippinePeso aria-hidden="true" className="h-5 w-5" />
               {listing.priceMin
@@ -264,7 +273,7 @@ export default async function ListingDetailPage({
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
               {listing.bookingMode === "instant"
-                ? "Choose your dates and pay the 50% downpayment to request this stay."
+                ? `Choose your dates to check the total. The quote calculates this listing's ${listing.downpaymentPct}% downpayment.`
                 : listing.bookingMode === "inquiry"
                   ? "Send a booking request. The owner confirms availability before payment."
                   : "Contact-only listing for this seed record."}
@@ -276,7 +285,9 @@ export default async function ListingDetailPage({
               </Button>
             ) : (
               <Button asChild className="mt-4 w-full">
-                <Link href={`/book/${listing.slug}`}>
+                <Link
+                  href={quotePrefillHref(`/book/${listing.slug}`, quotePrefill)}
+                >
                   <CalendarDays aria-hidden="true" className="h-4 w-4" />
                   {listing.bookingMode === "instant"
                     ? "Book now"
@@ -298,10 +309,93 @@ export default async function ListingDetailPage({
               </Button>
             ) : null}
           </div>
+          {listing.bookingMode !== "none" && listing.ratePlans.length ? (
+            <div className="mt-4">
+              <QuotePanel
+                initialQuote={quotePrefill}
+                listingId={listing.id}
+                rates={listing.ratePlans.map((rate) => ({
+                  id: rate.id,
+                  name: rate.name,
+                  billingPeriod: rate.billingPeriod,
+                }))}
+              />
+            </div>
+          ) : null}
         </aside>
       </div>
     </div>
   );
+}
+
+type QuotePrefill = {
+  ratePlanId: string;
+  checkIn: string;
+  checkOut: string;
+  pax: number;
+  requestedUnits: number;
+  durationHours?: number;
+};
+
+function quotePrefillFromParams(
+  params: Record<string, string | string[] | undefined>,
+  ratePlanIds: string[],
+): QuotePrefill | undefined {
+  const first = (value: string | string[] | undefined) =>
+    Array.isArray(value) ? value[0] : value;
+  const ratePlanId = first(params.ratePlanId);
+  const checkIn = first(params.checkIn);
+  const checkOut = first(params.checkOut);
+  const pax = positiveInteger(first(params.pax));
+  const requestedUnits = positiveInteger(first(params.requestedUnits));
+  const durationHours = positiveInteger(first(params.durationHours));
+  if (
+    !ratePlanId ||
+    !ratePlanIds.includes(ratePlanId) ||
+    !validDate(checkIn) ||
+    !validDate(checkOut) ||
+    !pax ||
+    !requestedUnits
+  )
+    return undefined;
+  return {
+    ratePlanId,
+    checkIn,
+    checkOut,
+    pax,
+    requestedUnits,
+    ...(durationHours ? { durationHours } : {}),
+  };
+}
+
+function quotePrefillHref(path: string, quote: QuotePrefill | undefined) {
+  if (!quote) return path;
+  const params = new URLSearchParams({
+    ratePlanId: quote.ratePlanId,
+    checkIn: quote.checkIn,
+    checkOut: quote.checkOut,
+    pax: String(quote.pax),
+    requestedUnits: String(quote.requestedUnits),
+  });
+  if (quote.durationHours)
+    params.set("durationHours", String(quote.durationHours));
+  return `${path}?${params.toString()}`;
+}
+
+function validDate(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
+function positiveInteger(value: string | undefined) {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 999
+    ? parsed
+    : undefined;
 }
 
 function buildListingJsonLd(listing: DiscoveryListing) {

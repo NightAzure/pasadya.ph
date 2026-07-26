@@ -64,6 +64,7 @@ export type RatePlan = {
   type: string;
   price: number;
   priceUnit: string;
+  billingPeriod: string | null;
   description: string | null;
 };
 
@@ -129,6 +130,11 @@ export type SearchFilters = {
   location?: string;
   minPrice?: number;
   maxPrice?: number;
+  checkIn?: string;
+  checkOut?: string;
+  pax?: number;
+  requestedUnits?: number;
+  durationHours?: number;
   amenities?: string[];
   minRating?: number;
   bookingMode?: "inquiry" | "instant" | "none";
@@ -178,6 +184,11 @@ export function parseSearchParams(
   const bookingMode = first(searchParams.bookingMode);
   const crowd = first(searchParams.crowd);
   const sort = first(searchParams.sort);
+  const checkIn = validIsoDate(first(searchParams.checkIn));
+  const checkOut = validIsoDate(first(searchParams.checkOut));
+  const pax = positiveInteger(first(searchParams.pax));
+  const requestedUnits = positiveInteger(first(searchParams.requestedUnits));
+  const durationHours = positiveInteger(first(searchParams.durationHours));
 
   return {
     ...defaults,
@@ -187,6 +198,11 @@ export function parseSearchParams(
     location: first(searchParams.location)?.trim() || defaults.location,
     minPrice: Number.isFinite(minPrice) ? minPrice * 100 : defaults.minPrice,
     maxPrice: Number.isFinite(maxPrice) ? maxPrice * 100 : defaults.maxPrice,
+    checkIn: checkIn ?? defaults.checkIn,
+    checkOut: checkOut ?? defaults.checkOut,
+    pax: pax ?? defaults.pax,
+    requestedUnits: requestedUnits ?? defaults.requestedUnits,
+    durationHours: durationHours ?? defaults.durationHours,
     amenities: all(searchParams.amenity).filter(Boolean),
     minRating: Number.isFinite(minRating) ? minRating : defaults.minRating,
     bookingMode: isBookingMode(bookingMode)
@@ -336,6 +352,7 @@ export async function searchListings(filters: SearchFilters = {}) {
           'type', rp.type,
           'price', rp.price,
           'priceUnit', rp.price_unit,
+          'billingPeriod', rp.billing_period,
           'description', rp.description
         )
         order by rp.sort_order asc
@@ -613,4 +630,21 @@ function isSort(value: string | undefined): value is SearchFilters["sort"] {
     value === "price-asc" ||
     value === "newest"
   );
+}
+
+function validIsoDate(value: string | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== value
+    ? undefined
+    : value;
+}
+
+function positiveInteger(value: string | undefined) {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 999
+    ? parsed
+    : undefined;
 }

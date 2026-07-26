@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getPortalActor } from "@/modules/portal/service";
+import { QuoteRejectedError } from "@/modules/pricing/service";
 import { domainUnavailable, getBookingDomain } from "./_domain";
 
 const createBookingSchema = z.object({
@@ -9,7 +10,9 @@ const createBookingSchema = z.object({
   checkIn: z.string().date(),
   checkOut: z.string().date(),
   pax: z.coerce.number().int().min(1).max(100),
-  ratePlanName: z.string().trim().min(1).max(120),
+  ratePlanId: z.string().uuid(),
+  requestedUnits: z.coerce.number().int().min(1).max(100).optional(),
+  durationHours: z.coerce.number().int().min(1).max(24).optional(),
   guestName: z.string().trim().min(2).max(120),
   guestPhone: z.string().trim().min(8).max(24),
   guestEmail: z.string().trim().email().max(180),
@@ -55,7 +58,21 @@ export async function POST(request: Request) {
     return NextResponse.json(domainUnavailable(), { status: 503 });
   }
 
-  const result = await domain.createBooking(parsed.data, actor.id);
+  let result;
+  try {
+    result = await domain.createBooking(parsed.data, actor.id);
+  } catch (error) {
+    if (error instanceof QuoteRejectedError) {
+      return NextResponse.json(
+        {
+          error: "This booking request cannot be quoted exactly.",
+          rejections: error.rejections,
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
   if (result.checkoutUrl) {
     return Response.redirect(result.checkoutUrl, 303);
   }

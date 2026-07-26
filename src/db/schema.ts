@@ -1,5 +1,6 @@
 import {
   boolean,
+  type AnyPgColumn,
   date,
   decimal,
   index,
@@ -20,7 +21,10 @@ import { customType } from "drizzle-orm/pg-core";
 export const geography = customType<{
   data: string;
   driverData: string;
-  config: { type: "Point" | "LineString"; srid?: number };
+  config: {
+    type: "Point" | "LineString" | "Polygon" | "MultiPolygon";
+    srid?: number;
+  };
 }>({
   dataType(config) {
     return `geography(${config?.type ?? "Point"}, ${config?.srid ?? 4326})`;
@@ -200,6 +204,56 @@ export const jobStatusEnum = pgEnum("job_status", [
   "completed",
   "failed",
 ]);
+export const areaTypeEnum = pgEnum("area_type", [
+  "country",
+  "region",
+  "province",
+  "city_municipality",
+  "island",
+  "barangay",
+  "landmark",
+]);
+export const listingTrustStatusEnum = pgEnum("listing_trust_status", [
+  "verified",
+  "owner_provided",
+  "team_verified",
+  "estimated",
+  "stale",
+  "unknown",
+]);
+export const locationSourceEnum = pgEnum("location_source", [
+  "owner",
+  "team",
+  "geocoded",
+  "imported",
+  "seeded",
+  "unknown",
+]);
+export const locationAccuracyEnum = pgEnum("location_accuracy", [
+  "exact",
+  "approximate",
+  "area_only",
+  "unknown",
+]);
+export const sourceRightsEnum = pgEnum("source_rights_classification", [
+  "owner_provided",
+  "team_collected",
+  "licensed",
+  "public_reference",
+  "unknown",
+]);
+export const sourceRetentionEnum = pgEnum("source_retention_classification", [
+  "retain",
+  "review",
+  "remove_on_request",
+  "unknown",
+]);
+export const aliasTypeEnum = pgEnum("alias_type", [
+  "alternate",
+  "local",
+  "former",
+  "search_keyword",
+]);
 
 const id = uuid("id").defaultRandom().primaryKey();
 const createdAt = timestamp("created_at", { withTimezone: true })
@@ -321,6 +375,52 @@ export const businesses = pgTable(
   (table) => [index("businesses_owner_id_idx").on(table.ownerId)],
 );
 
+export const areas = pgTable(
+  "areas",
+  {
+    id,
+    parentId: uuid("parent_id").references((): AnyPgColumn => areas.id, {
+      onDelete: "restrict",
+    }),
+    type: areaTypeEnum("type").notNull(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    center: geography("center", { type: "Point", srid: 4326 }),
+    boundary: geography("boundary", { type: "MultiPolygon", srid: 4326 }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("areas_slug_unique").on(table.slug),
+    index("areas_parent_id_idx").on(table.parentId),
+    index("areas_type_name_idx").on(table.type, table.name),
+    index("areas_center_gist_idx").using("gist", table.center),
+    index("areas_boundary_gist_idx").using("gist", table.boundary),
+  ],
+);
+
+export const areaAliases = pgTable(
+  "area_aliases",
+  {
+    id,
+    areaId: uuid("area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+    alias: text("alias").notNull(),
+    normalizedAlias: text("normalized_alias").notNull(),
+    type: aliasTypeEnum("type").notNull().default("alternate"),
+    createdAt,
+  },
+  (table) => [
+    uniqueIndex("area_aliases_area_normalized_unique").on(
+      table.areaId,
+      table.normalizedAlias,
+    ),
+    index("area_aliases_normalized_idx").on(table.normalizedAlias),
+    index("area_aliases_alias_trgm_idx").using("gin", table.alias),
+  ],
+);
+
 export const listings = pgTable(
   "listings",
   {
@@ -335,6 +435,29 @@ export const listings = pgTable(
     status: listingStatusEnum("status").notNull().default("draft"),
     claimStatus: claimStatusEnum("claim_status").notNull().default("unclaimed"),
     location: geography("location", { type: "Point", srid: 4326 }),
+    canonicalAreaId: uuid("canonical_area_id").references(() => areas.id, {
+      onDelete: "set null",
+    }),
+    locationSource: locationSourceEnum("location_source")
+      .notNull()
+      .default("unknown"),
+    locationAccuracy: locationAccuracyEnum("location_accuracy")
+      .notNull()
+      .default("unknown"),
+    locationVerificationStatus: listingTrustStatusEnum(
+      "location_verification_status",
+    )
+      .notNull()
+      .default("unknown"),
+    locationLastVerifiedAt: timestamp("location_last_verified_at", {
+      withTimezone: true,
+    }),
+    locationVerifiedBy: uuid("location_verified_by").references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    locationOverrideReason: text("location_override_reason"),
+    hoursTimezone: text("hours_timezone").notNull().default("Asia/Manila"),
     address: jsonb("address").notNull().default({}),
     attributes: jsonb("attributes").notNull().default({}),
     priceMin: integer("price_min"),
@@ -353,6 +476,7 @@ export const listings = pgTable(
     contactFacebook: text("contact_facebook"),
     contactWebsite: text("contact_website"),
     searchVector: tsvector("search_vector"),
+    searchVectorSimple: tsvector("search_vector_simple"),
     createdAt,
     updatedAt,
     publishedAt: timestamp("published_at", { withTimezone: true }),
@@ -360,12 +484,169 @@ export const listings = pgTable(
   (table) => [
     uniqueIndex("listings_slug_unique").on(table.slug),
     index("listings_business_id_idx").on(table.businessId),
+    index("listings_canonical_area_id_idx").on(table.canonicalAreaId),
+    index("listings_location_verification_idx").on(
+      table.locationVerificationStatus,
+      table.locationLastVerifiedAt,
+    ),
     index("listings_category_status_idx")
       .on(table.category, table.status)
       .where(sql`${table.status} = 'published'`),
     index("listings_price_idx").on(table.priceMin, table.priceMax),
     index("listings_location_gist_idx").using("gist", table.location),
     index("listings_search_gin_idx").using("gin", table.searchVector),
+  ],
+);
+
+export const listingAliases = pgTable(
+  "listing_aliases",
+  {
+    id,
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    alias: text("alias").notNull(),
+    normalizedAlias: text("normalized_alias").notNull(),
+    type: aliasTypeEnum("type").notNull().default("alternate"),
+    createdAt,
+  },
+  (table) => [
+    uniqueIndex("listing_aliases_listing_normalized_unique").on(
+      table.listingId,
+      table.normalizedAlias,
+    ),
+    index("listing_aliases_normalized_idx").on(table.normalizedAlias),
+    index("listing_aliases_alias_trgm_idx").using("gin", table.alias),
+  ],
+);
+
+export const listingOpeningHours = pgTable(
+  "listing_opening_hours",
+  {
+    id,
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    dayOfWeek: integer("day_of_week").notNull(),
+    opensAt: time("opens_at"),
+    closesAt: time("closes_at"),
+    isClosed: boolean("is_closed").notNull().default(false),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("listing_opening_hours_listing_day_unique").on(
+      table.listingId,
+      table.dayOfWeek,
+    ),
+    index("listing_opening_hours_listing_day_idx").on(
+      table.listingId,
+      table.dayOfWeek,
+    ),
+  ],
+);
+
+export const listingSpecialHours = pgTable(
+  "listing_special_hours",
+  {
+    id,
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    opensAt: time("opens_at"),
+    closesAt: time("closes_at"),
+    isClosed: boolean("is_closed").notNull().default(false),
+    note: text("note"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("listing_special_hours_listing_date_unique").on(
+      table.listingId,
+      table.date,
+    ),
+    index("listing_special_hours_listing_date_idx").on(
+      table.listingId,
+      table.date,
+    ),
+  ],
+);
+
+export const listingSources = pgTable(
+  "listing_sources",
+  {
+    id,
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    externalIdentifier: text("external_identifier"),
+    sourceUrl: text("source_url"),
+    rightsClassification: sourceRightsEnum("rights_classification")
+      .notNull()
+      .default("unknown"),
+    retentionClassification: sourceRetentionEnum("retention_classification")
+      .notNull()
+      .default("unknown"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("listing_sources_identity_unique")
+      .on(table.listingId, table.provider, table.externalIdentifier)
+      .where(sql`${table.externalIdentifier} is not null`),
+    index("listing_sources_listing_id_idx").on(table.listingId),
+    index("listing_sources_provider_external_id_idx").on(
+      table.provider,
+      table.externalIdentifier,
+    ),
+    index("listing_sources_verification_idx").on(
+      table.lastVerifiedAt,
+      table.lastCheckedAt,
+    ),
+  ],
+);
+
+export const listingFieldProvenance = pgTable(
+  "listing_field_provenance",
+  {
+    id,
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    fieldName: text("field_name").notNull(),
+    sourceId: uuid("source_id").references(() => listingSources.id, {
+      onDelete: "set null",
+    }),
+    trustStatus: listingTrustStatusEnum("trust_status")
+      .notNull()
+      .default("unknown"),
+    isCanonical: boolean("is_canonical").notNull().default(false),
+    verifiedBy: uuid("verified_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    validUntil: timestamp("valid_until", { withTimezone: true }),
+    sourceNote: text("source_note"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("listing_field_provenance_canonical_unique")
+      .on(table.listingId, table.fieldName)
+      .where(sql`${table.isCanonical} = true`),
+    index("listing_field_provenance_listing_field_idx").on(
+      table.listingId,
+      table.fieldName,
+    ),
+    index("listing_field_provenance_verification_idx").on(
+      table.trustStatus,
+      table.validUntil,
+    ),
+    index("listing_field_provenance_source_id_idx").on(table.sourceId),
   ],
 );
 
@@ -427,13 +708,54 @@ export const ratePlans = pgTable(
     type: ratePlanTypeEnum("type").notNull(),
     price: integer("price").notNull(),
     priceUnit: priceUnitEnum("price_unit").notNull(),
+    billingPeriod: text("billing_period"),
+    billingUnit: text("billing_unit"),
+    includedPax: integer("included_pax"),
+    extraPaxCharge: integer("extra_pax_charge"),
+    capacityPerUnit: integer("capacity_per_unit"),
+    inventoryUnitLabel: text("inventory_unit_label"),
+    availableQuantity: integer("available_quantity"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    quoteEligibility: text("quote_eligibility").notNull().default("unknown"),
+    mandatoryFee: integer("mandatory_fee"),
+    mandatoryFeeLabel: text("mandatory_fee_label"),
+    mandatoryFeeBasis: text("mandatory_fee_basis")
+      .notNull()
+      .default("unmodeled"),
+    feesDeclaredAt: timestamp("fees_declared_at", { withTimezone: true }),
+    mandatoryChargeDisclosureStatus: text("mandatory_charge_disclosure_status")
+      .notNull()
+      .default("undisclosed"),
+    pricingTrustStatus: listingTrustStatusEnum("pricing_trust_status")
+      .notNull()
+      .default("unknown"),
+    pricingVerifiedAt: timestamp("pricing_verified_at", {
+      withTimezone: true,
+    }),
+    pricingValidUntil: timestamp("pricing_valid_until", {
+      withTimezone: true,
+    }),
+    availabilityTrustStatus: listingTrustStatusEnum("availability_trust_status")
+      .notNull()
+      .default("unknown"),
+    availabilityVerifiedAt: timestamp("availability_verified_at", {
+      withTimezone: true,
+    }),
+    availabilityValidUntil: timestamp("availability_valid_until", {
+      withTimezone: true,
+    }),
     maxPax: integer("max_pax"),
     minPax: integer("min_pax").notNull().default(1),
     description: text("description"),
     active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
   },
-  (table) => [index("rate_plans_listing_id_idx").on(table.listingId)],
+  (table) => [
+    index("rate_plans_listing_id_idx").on(table.listingId),
+    uniqueIndex("rate_plans_primary_per_listing_unique")
+      .on(table.listingId)
+      .where(sql`${table.isPrimary} = true and ${table.active} = true`),
+  ],
 );
 
 export const availabilityBlocks = pgTable(
@@ -486,6 +808,9 @@ export const bookings = pgTable(
     subtotal: integer("subtotal").notNull(),
     downpaymentAmount: integer("downpayment_amount").notNull(),
     balanceDue: integer("balance_due").notNull(),
+    reservedUnits: integer("reserved_units").notNull().default(1),
+    quoteVersion: text("quote_version").notNull().default("legacy-v0"),
+    quoteSnapshot: jsonb("quote_snapshot"),
     currency: text("currency").notNull().default("PHP"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
@@ -500,6 +825,40 @@ export const bookings = pgTable(
     index("bookings_user_id_idx").on(table.userId),
     index("bookings_rate_plan_id_idx").on(table.ratePlanId),
     index("bookings_status_expires_at_idx").on(table.status, table.expiresAt),
+  ],
+);
+
+export const inventoryReservations = pgTable(
+  "inventory_reservations",
+  {
+    id,
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => bookings.id, { onDelete: "restrict" }),
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "restrict" }),
+    ratePlanId: uuid("rate_plan_id")
+      .notNull()
+      .references(() => ratePlans.id, { onDelete: "restrict" }),
+    serviceDate: date("service_date").notNull(),
+    units: integer("units").notNull(),
+    createdAt,
+  },
+  (table) => [
+    uniqueIndex("inventory_reservations_booking_rate_date_unique").on(
+      table.bookingId,
+      table.ratePlanId,
+      table.serviceDate,
+    ),
+    index("inventory_reservations_rate_date_idx").on(
+      table.ratePlanId,
+      table.serviceDate,
+    ),
+    index("inventory_reservations_listing_date_idx").on(
+      table.listingId,
+      table.serviceDate,
+    ),
   ],
 );
 
@@ -745,6 +1104,8 @@ export const transportRoutes = pgTable(
     operatingHours: jsonb("operating_hours").notNull().default({}),
     status: transportStatusEnum("status").notNull().default("draft"),
     source: transportSourceEnum("source").notNull().default("seeded"),
+    lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    sourceNote: text("source_note"),
     contributorId: uuid("contributor_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -773,6 +1134,65 @@ export const routeStops = pgTable(
   (table) => [
     index("route_stops_route_id_idx").on(table.routeId),
     index("route_stops_location_gist_idx").using("gist", table.location),
+  ],
+);
+
+export const routeEdges = pgTable(
+  "route_edges",
+  {
+    id,
+    routeId: uuid("route_id")
+      .notNull()
+      .references(() => transportRoutes.id, { onDelete: "cascade" }),
+    fromStopId: uuid("from_stop_id")
+      .notNull()
+      .references(() => routeStops.id, { onDelete: "cascade" }),
+    toStopId: uuid("to_stop_id")
+      .notNull()
+      .references(() => routeStops.id, { onDelete: "cascade" }),
+    distanceM: integer("distance_m").notNull(),
+    durationMin: integer("duration_min").notNull(),
+    fare: integer("fare").notNull().default(0),
+    serviceHours: jsonb("service_hours").notNull().default({}),
+    source: transportSourceEnum("source").notNull().default("seeded"),
+    confidence: text("confidence").notNull().default("medium"),
+    lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    modeled: boolean("modeled").notNull().default(true),
+  },
+  (table) => [
+    uniqueIndex("route_edges_route_from_to_unique").on(
+      table.routeId,
+      table.fromStopId,
+      table.toStopId,
+    ),
+    index("route_edges_from_stop_id_idx").on(table.fromStopId),
+    index("route_edges_to_stop_id_idx").on(table.toStopId),
+    index("route_edges_route_id_idx").on(table.routeId),
+  ],
+);
+
+export const listingStopAccess = pgTable(
+  "listing_stop_access",
+  {
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    stopId: uuid("stop_id")
+      .notNull()
+      .references(() => routeStops.id, { onDelete: "cascade" }),
+    walkingDistanceM: integer("walking_distance_m").notNull(),
+    walkingDurationMin: integer("walking_duration_min").notNull(),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.listingId, table.stopId] }),
+    index("listing_stop_access_stop_id_idx").on(table.stopId),
+    index("listing_stop_access_primary_listing_id_idx")
+      .on(table.listingId)
+      .where(sql`${table.isPrimary} = true`),
   ],
 );
 

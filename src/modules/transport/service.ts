@@ -3,6 +3,12 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { dispatchEvent } from "@/modules/notifications/service";
 
+import {
+  planJourneyFromGraph,
+  rebuildListingStopAccess,
+  rebuildRouteEdges,
+} from "./graph";
+
 export const transportModes = [
   "jeepney",
   "bus",
@@ -250,42 +256,14 @@ export async function planJourney(input: {
   destination: GeoPoint;
   destinationLabel: string;
 }) {
-  const [routes, ferries, segmentResult] = await Promise.all([
-    getPublishedRoutes(),
-    getFerrySchedules(),
-    db.execute<SegmentRow>(sql`
-      select
-        id::text as "id",
-        from_route_id::text as "fromRouteId",
-        to_route_id::text as "toRouteId",
-        transfer_stop_id::text as "transferStopId",
-        transfer_notes as "transferNotes",
-        walking_distance_m as "walkingDistanceM"
-      from route_segments
-    `),
-  ]);
+  const summary = await planJourneyFromGraph(input);
+  if (!summary?.legs) return null;
+  return withDisclaimer(summary.legs, summary);
+}
 
-  const ferryJourney = findFerryJourney(routes, ferries, input);
-  if (ferryJourney) {
-    return withDisclaimer(ferryJourney);
-  }
-
-  const sameRoute = findSameRoute(routes, input.origin, input.destination);
-  if (sameRoute) {
-    return withDisclaimer(addWalkingLegs(sameRoute, input));
-  }
-
-  const transfer = findTransferJourney(
-    routes,
-    segmentResult.rows,
-    input.origin,
-    input.destination,
-  );
-  if (transfer) {
-    return withDisclaimer(addWalkingLegs(transfer, input));
-  }
-
-  return null;
+export async function refreshTransportGraph() {
+  await rebuildRouteEdges();
+  await rebuildListingStopAccess();
 }
 
 export async function createRouteContribution(input: {
@@ -321,257 +299,24 @@ export async function createRouteContribution(input: {
   return contributionId;
 }
 
-function findSameRoute(
-  routes: TransportRoute[],
-  origin: GeoPoint,
-  destination: GeoPoint,
-) {
-  let best: Leg[] | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (const route of routes) {
-    if (route.mode === "ferry" || route.stops.length < 2) continue;
-    const from = nearestStop(route.stops, origin);
-    const to = nearestStop(route.stops, destination);
-    const distance = from.distanceM + to.distanceM;
-    if (
-      distance > 5000 ||
-      distance >= bestDistance ||
-      from.stop.id === to.stop.id
-    ) {
-      continue;
-    }
-    bestDistance = distance;
-    best = [routeLeg(route, from.stop, to.stop)];
-  }
-
-  return best;
-}
-
-function findTransferJourney(
-  routes: TransportRoute[],
-  segments: SegmentRow[],
-  origin: GeoPoint,
-  destination: GeoPoint,
-) {
-  const routeById = new Map(routes.map((route) => [route.id, route]));
-  let best: Leg[] | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (const segment of segments) {
-    const fromRoute = routeById.get(segment.fromRouteId);
-    const toRoute = routeById.get(segment.toRouteId);
-    if (!fromRoute || !toRoute || !segment.transferStopId) continue;
-    const transferStop = [...fromRoute.stops, ...toRoute.stops].find(
-      (stop) => stop.id === segment.transferStopId,
-    );
-    if (!transferStop) continue;
-
-    const from = nearestStop(fromRoute.stops, origin);
-    const to = nearestStop(toRoute.stops, destination);
-    const distance = from.distanceM + to.distanceM;
-    if (
-      distance > 7000 ||
-      distance >= bestDistance ||
-      from.stop.id === transferStop.id ||
-      to.stop.id === transferStop.id
-    ) {
-      continue;
-    }
-    bestDistance = distance;
-    best = [
-      routeLeg(fromRoute, from.stop, transferStop),
-      {
-        mode: "walk",
-        from: placeFromStop(transferStop),
-        to: placeFromStop(transferStop),
-        fare: 0,
-        durationMin: Math.max(
-          1,
-          Math.round((segment.walkingDistanceM ?? 80) / 80),
-        ),
-        distanceM: segment.walkingDistanceM ?? 80,
-        instructions: segment.transferNotes ?? "Walk to the connecting route.",
-      },
-      routeLeg(toRoute, transferStop, to.stop),
-    ];
-  }
-
-  return best;
-}
-
-function findFerryJourney(
-  routes: TransportRoute[],
-  ferries: FerrySchedule[],
-  input: {
-    origin: GeoPoint;
-    originLabel: string;
-    destination: GeoPoint;
-    destinationLabel: string;
-  },
-) {
-  const ferry = ferries.find(
-    (candidate) =>
-      distanceM(input.origin, candidate.originPoint) < 12000 &&
-      distanceM(input.origin, candidate.originPoint) <
-        distanceM(input.origin, candidate.destinationPoint) &&
-      distanceM(input.destination, candidate.destinationPoint) < 18000 &&
-      distanceM(input.destination, candidate.destinationPoint) <
-        distanceM(input.destination, candidate.originPoint),
-  );
-  if (!ferry) return null;
-
-  const originRoutes = routes.filter((route) => route.mode !== "ferry");
-  const destinationRoutes = originRoutes;
-  const originRoute = bestRouteToPoint(
-    originRoutes,
-    input.origin,
-    ferry.originPoint,
-  );
-  const destinationRoute = bestRouteToPoint(
-    destinationRoutes,
-    ferry.destinationPoint,
-    input.destination,
-  );
-  const legs: Leg[] = [];
-
-  if (originRoute) {
-    legs.push(routeLeg(originRoute.route, originRoute.from, originRoute.to));
-  }
-  legs.push({
-    mode: "ferry",
-    routeName: ferry.routeName,
-    from: { name: ferry.origin, location: ferry.originPoint },
-    to: { name: ferry.destination, location: ferry.destinationPoint },
-    fare: ferry.fare,
-    durationMin: ferry.durationMinutes,
-    instructions: `Take the ${ferry.routeName} ferry. ${ferry.notes ?? "Check the wharf for the next departure."}`,
-  });
-  if (
-    destinationRoute &&
-    destinationRoute.from.id !== destinationRoute.to.id &&
-    distanceM(destinationRoute.from, destinationRoute.to) > 30
-  ) {
-    legs.push(
-      routeLeg(
-        destinationRoute.route,
-        destinationRoute.from,
-        destinationRoute.to,
-      ),
-    );
-  }
-
-  return addWalkingLegs(legs, input);
-}
-
-function bestRouteToPoint(
-  routes: TransportRoute[],
-  from: GeoPoint,
-  to: GeoPoint,
-) {
-  let best: {
-    route: TransportRoute;
-    from: RouteStop;
-    to: RouteStop;
-    score: number;
-  } | null = null;
-  for (const route of routes) {
-    if (route.stops.length < 2) continue;
-    const origin = nearestStop(route.stops, from);
-    const destination = nearestStop(route.stops, to);
-    const score = origin.distanceM + destination.distanceM;
-    if (!best || score < best.score) {
-      best = { route, from: origin.stop, to: destination.stop, score };
-    }
-  }
-  return best;
-}
-
-function routeLeg(route: TransportRoute, from: RouteStop, to: RouteStop): Leg {
-  const distance = distanceM(from, to);
-  const fare = route.fareMin ?? route.fareMax ?? 0;
-  return {
-    mode: route.mode,
-    routeName: route.name,
-    from: placeFromStop(from),
-    to: placeFromStop(to),
-    fare,
-    durationMin: Math.max(5, Math.round(distance / 250)),
-    instructions: `Board ${route.name} and get off at ${to.name}.`,
-  };
-}
-
-function addWalkingLegs(
+function withDisclaimer(
   legs: Leg[],
-  input: {
-    origin: GeoPoint;
-    originLabel: string;
-    destination: GeoPoint;
-    destinationLabel: string;
-  },
-) {
-  const next = [...legs];
-  if (next.length === 0) return next;
-  const first = next[0];
-  const last = next[next.length - 1];
-  const originDistance = distanceM(input.origin, first.from.location);
-  const destinationDistance = distanceM(last.to.location, input.destination);
-
-  if (originDistance > 30) {
-    next.unshift({
-      mode: "walk",
-      from: { name: input.originLabel, location: input.origin },
-      to: first.from,
-      fare: 0,
-      durationMin: Math.max(1, Math.round(originDistance / 80)),
-      distanceM: Math.round(originDistance),
-      instructions: `Walk to ${first.from.name}.`,
-    });
-  }
-  if (destinationDistance > 30) {
-    next.push({
-      mode: "walk",
-      from: last.to,
-      to: { name: input.destinationLabel, location: input.destination },
-      fare: 0,
-      durationMin: Math.max(1, Math.round(destinationDistance / 80)),
-      distanceM: Math.round(destinationDistance),
-      instructions: `Walk to ${input.destinationLabel}.`,
-    });
-  }
-  return next;
-}
-
-function withDisclaimer(legs: Leg[]): Journey {
+  summary?: { modeled: boolean; confidence: string },
+): Journey {
+  const modeledNote = summary?.modeled
+    ? " Travel times are modeled when explicit schedules or segment timings are unavailable."
+    : "";
+  const confidenceNote =
+    summary?.confidence === "low"
+      ? " Route confidence is low until fresh verification exists."
+      : "";
   return {
     legs,
     totalFare: legs.reduce((total, leg) => total + leg.fare, 0),
     totalDurationMin: legs.reduce((total, leg) => total + leg.durationMin, 0),
     totalWalkingM: legs.reduce((total, leg) => total + (leg.distanceM ?? 0), 0),
-    disclaimer:
-      "Community-sourced and approximate. Check local fares, traffic, weather, and ferry departures before leaving.",
+    disclaimer: `Community-sourced and approximate.${modeledNote}${confidenceNote} Check local fares, traffic, weather, and ferry departures before leaving.`,
   };
-}
-
-function nearestStop(stops: RouteStop[], point: GeoPoint) {
-  return stops.reduce(
-    (best, stop) => {
-      const distance = distanceM(stop, point);
-      return distance < best.distanceM ? { stop, distanceM: distance } : best;
-    },
-    { stop: stops[0], distanceM: Number.POSITIVE_INFINITY },
-  );
-}
-
-function placeFromStop(stop: RouteStop) {
-  return { name: stop.name, location: { lat: stop.lat, lng: stop.lng } };
-}
-
-function distanceM(a: GeoPoint, b: GeoPoint) {
-  const lat = ((a.lat + b.lat) / 2) * (Math.PI / 180);
-  const latM = (a.lat - b.lat) * 111_000;
-  const lngM = (a.lng - b.lng) * 111_000 * Math.cos(lat);
-  return Math.sqrt(latM * latM + lngM * lngM);
 }
 
 function parseJsonObject(value: unknown) {
@@ -635,15 +380,6 @@ type FerryRow = {
   operator: string | null;
   notes: string | null;
   daysOfWeek: number[] | null;
-};
-
-type SegmentRow = {
-  id: string;
-  fromRouteId: string;
-  toRouteId: string;
-  transferStopId: string | null;
-  transferNotes: string | null;
-  walkingDistanceM: number | null;
 };
 
 type DestinationRow = {

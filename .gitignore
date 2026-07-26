@@ -7,4 +7,8 @@ build
 *.tsbuildinfo
 next-env.d.ts
 *.log
-/docs
+/docs/*
+!/docs/homepage-concepts/
+!/docs/homepage-concepts/pasadya-daylight.md
+!/docs/09-search-2.0-production-program.md
+!/docs/search-2.0-phase-10-rollout.md

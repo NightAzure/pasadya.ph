@@ -4,6 +4,7 @@ import type { Session } from "next-auth";
 import { z } from "zod";
 
 import { db } from "@/db/client";
+import { isLaunchCoordinate } from "@/lib/launch-region";
 import { AuthorizationError, authorize } from "@/lib/rbac";
 import { listingSlugSchema, uuidSchema } from "@/lib/validation";
 import { claimUploadSchema, photoUploadSchema } from "@/modules/portal/upload";
@@ -30,35 +31,144 @@ export const claimRequestSchema = z.object({
   notes: z.string().trim().max(700).optional(),
 });
 
-export const listingEditSchema = z.object({
-  listingId: uuidSchema,
-  name: z.string().trim().min(2).max(160),
-  description: z.string().trim().min(20).max(1500),
-  street: z.string().trim().max(180).optional(),
-  barangay: z.string().trim().min(1).max(120),
-  municipality: z.string().trim().min(1).max(120),
-  province: z.string().trim().min(1).max(120),
-  contactPhone: z.string().trim().max(24).optional(),
-  contactFacebook: z.string().trim().max(240).optional(),
-  contactWebsite: z.string().trim().max(240).optional(),
-  amenitySlugs: z.array(z.string().trim().min(1)).default([]),
-  rateName: z.string().trim().min(2).max(120),
-  rateType: z
-    .enum(["overnight", "day_use", "entrance", "package", "hourly"])
-    .default("package"),
-  ratePricePhp: z.coerce.number().int().min(0).max(1_000_000),
-  rateUnit: z
-    .enum(["per_night", "per_person", "per_group", "flat"])
-    .default("flat"),
-  rateDescription: z.string().trim().max(240).optional(),
-  photoUrl: z.string().trim().max(400).optional(),
-  photoFileName: z.string().trim().max(180).optional(),
-  photoContentType: z.string().trim().max(80).optional(),
-  photoSizeBytes: z.coerce.number().int().optional(),
-});
+export const listingEditSchema = z
+  .object({
+    listingId: uuidSchema,
+    name: z.string().trim().min(2).max(160),
+    description: z.string().trim().min(20).max(1500),
+    street: z.string().trim().max(180).optional(),
+    barangay: z.string().trim().min(1).max(120),
+    municipality: z.string().trim().min(1).max(120),
+    province: z.string().trim().min(1).max(120),
+    locationConfirmed: z
+      .enum(["true"])
+      .transform(() => true)
+      .optional(),
+    latitude: z.coerce.number().min(-90).max(90).optional(),
+    longitude: z.coerce.number().min(-180).max(180).optional(),
+    contactPhone: z.string().trim().max(24).optional(),
+    contactFacebook: z.string().trim().max(240).optional(),
+    contactWebsite: z.string().trim().max(240).optional(),
+    amenitySlugs: z.array(z.string().trim().min(1)).default([]),
+    rateName: z.string().trim().min(2).max(120),
+    rateType: z
+      .enum(["overnight", "day_use", "entrance", "package", "hourly"])
+      .default("package"),
+    ratePricePhp: z.coerce.number().int().min(0).max(1_000_000),
+    rateUnit: z
+      .enum(["per_night", "per_person", "per_group", "flat"])
+      .default("flat"),
+    rateDescription: z.string().trim().max(240).optional(),
+    billingPeriod: z.enum(["once", "night", "day", "hour"]).optional(),
+    billingUnit: z.enum(["inventory_unit", "person", "group"]).optional(),
+    includedPax: z.coerce.number().int().min(0).max(10_000).optional(),
+    extraPaxChargePhp: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    capacityPerUnit: z.coerce.number().int().min(1).max(10_000).optional(),
+    inventoryUnitLabel: z.string().trim().min(1).max(80).optional(),
+    minPax: z.coerce.number().int().min(1).max(10_000).optional(),
+    maxPax: z.coerce.number().int().min(1).max(10_000).optional(),
+    availableQuantity: z.coerce.number().int().min(0).max(10_000).optional(),
+    mandatoryFeePhp: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    mandatoryFeeLabel: z.string().trim().max(120).optional(),
+    feeDisclosureConfirmed: z
+      .enum(["true"])
+      .transform(() => true)
+      .optional(),
+    categoryAttributes: z.string().trim().max(4_000).default("{}"),
+    weeklyHours: z.string().trim().max(4_000).default("[]"),
+    specialHours: z.string().trim().max(4_000).default("[]"),
+    photoUrl: z
+      .string()
+      .trim()
+      .max(400)
+      .refine(
+        (value) =>
+          !value ||
+          value.startsWith("/uploads/") ||
+          value.startsWith("/listings/"),
+        "Use a Pasadya upload URL; external image URLs are not accepted.",
+      )
+      .optional(),
+    photoFileName: z.string().trim().max(180).optional(),
+    photoContentType: z.string().trim().max(80).optional(),
+    photoSizeBytes: z.coerce.number().int().optional(),
+  })
+  .superRefine((input, context) => {
+    if (!input.locationConfirmed) return;
+    const requiredFields = [
+      "latitude",
+      "longitude",
+      "billingPeriod",
+      "billingUnit",
+      "includedPax",
+      "extraPaxChargePhp",
+      "capacityPerUnit",
+      "inventoryUnitLabel",
+      "minPax",
+      "maxPax",
+      "availableQuantity",
+      "mandatoryFeePhp",
+      "feeDisclosureConfirmed",
+    ] as const;
+    for (const field of requiredFields)
+      if (input[field] === undefined)
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: "Complete this search-data field before saving.",
+        });
+    if (
+      input.minPax !== undefined &&
+      input.maxPax !== undefined &&
+      input.minPax > input.maxPax
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["maxPax"],
+        message: "Maximum guests must be at least the minimum.",
+      });
+    }
+    if (input.mandatoryFeePhp && !input.mandatoryFeeLabel) {
+      context.addIssue({
+        code: "custom",
+        path: ["mandatoryFeeLabel"],
+        message:
+          "Name the one fixed per-booking mandatory fee that guests must pay.",
+      });
+    }
+    if (
+      input.includedPax !== undefined &&
+      input.minPax !== undefined &&
+      input.maxPax !== undefined &&
+      (input.includedPax < input.minPax || input.includedPax > input.maxPax)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["includedPax"],
+        message: "Included guests must fall within the guest range.",
+      });
+    }
+    if (
+      input.latitude !== undefined &&
+      input.longitude !== undefined &&
+      !isSupportedCoordinate(input.latitude, input.longitude)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["latitude"],
+        message:
+          "Choose a pin in the Samal or Davao City launch area. Ask an admin for an exception.",
+      });
+    }
+  });
+
+export function isSupportedCoordinate(latitude: number, longitude: number) {
+  return isLaunchCoordinate(latitude, longitude);
+}
 
 export const availabilitySchema = z.object({
   listingId: uuidSchema,
+  ratePlanId: uuidSchema.optional(),
   date: z.string().date(),
   available: z.enum(["true", "false"]).transform((value) => value === "true"),
   quantity: z.coerce.number().int().min(0).max(999).default(1),
@@ -350,6 +460,19 @@ export async function getOwnerListing(actorId: string, listingId: string) {
         type: string;
         price: number;
         priceUnit: string;
+        billingPeriod: string | null;
+        billingUnit: string | null;
+        includedPax: number | null;
+        extraPaxCharge: number | null;
+        capacityPerUnit: number | null;
+        inventoryUnitLabel: string | null;
+        minPax: number;
+        maxPax: number | null;
+        availableQuantity: number | null;
+        mandatoryFee: number | null;
+        mandatoryFeeLabel: string | null;
+        mandatoryChargeDisclosureStatus: string;
+        isPrimary: boolean;
         description: string | null;
       }[];
       media: { id: string; url: string; caption: string | null }[];
@@ -358,6 +481,20 @@ export async function getOwnerListing(actorId: string, listingId: string) {
         date: string;
         available: boolean;
         quantity: number;
+      }[];
+      location: { latitude: number; longitude: number } | null;
+      weeklyHours: {
+        dayOfWeek: number;
+        opensAt: string | null;
+        closesAt: string | null;
+        isClosed: boolean;
+      }[];
+      specialHours: {
+        date: string;
+        opensAt: string | null;
+        closesAt: string | null;
+        isClosed: boolean;
+        note: string | null;
       }[];
     }
   >(sql`
@@ -375,6 +512,7 @@ export async function getOwnerListing(actorId: string, listingId: string) {
       l.contact_website as "contactWebsite",
       l.address,
       l.attributes,
+      case when l.location is null then null else json_build_object('latitude', ST_Y(l.location::geometry), 'longitude', ST_X(l.location::geometry)) end as "location",
       l.price_min as "priceMin",
       l.price_max as "priceMax",
       0::integer as "rateCount",
@@ -385,7 +523,9 @@ export async function getOwnerListing(actorId: string, listingId: string) {
       coalesce(amenities.items, '[]'::json) as "amenities",
       coalesce(rates.items, '[]'::json) as "ratePlans",
       coalesce(media.items, '[]'::json) as "media",
-      coalesce(blocks.items, '[]'::json) as "availability"
+      coalesce(blocks.items, '[]'::json) as "availability",
+      coalesce(weekly.items, '[]'::json) as "weeklyHours",
+      coalesce(special.items, '[]'::json) as "specialHours"
     from listings l
     join businesses b on b.id = l.business_id
     left join lateral (
@@ -401,8 +541,21 @@ export async function getOwnerListing(actorId: string, listingId: string) {
         'type', rp.type,
         'price', rp.price,
         'priceUnit', rp.price_unit,
+        'billingPeriod', rp.billing_period,
+        'billingUnit', rp.billing_unit,
+        'includedPax', rp.included_pax,
+        'extraPaxCharge', rp.extra_pax_charge,
+        'capacityPerUnit', rp.capacity_per_unit,
+        'inventoryUnitLabel', rp.inventory_unit_label,
+        'minPax', rp.min_pax,
+        'maxPax', rp.max_pax,
+        'availableQuantity', rp.available_quantity,
+        'mandatoryFee', rp.mandatory_fee,
+        'mandatoryFeeLabel', rp.mandatory_fee_label,
+        'mandatoryChargeDisclosureStatus', rp.mandatory_charge_disclosure_status,
+        'isPrimary', rp.is_primary,
         'description', rp.description
-      ) order by rp.sort_order) as items
+      ) order by rp.is_primary desc, rp.sort_order) as items
       from rate_plans rp
       where rp.listing_id = l.id and rp.active = true
     ) rates on true
@@ -425,6 +578,14 @@ export async function getOwnerListing(actorId: string, listingId: string) {
       from availability_blocks ab
       where ab.listing_id = l.id and ab.date >= current_date
     ) blocks on true
+    left join lateral (
+      select json_agg(json_build_object('dayOfWeek', h.day_of_week, 'opensAt', h.opens_at::text, 'closesAt', h.closes_at::text, 'isClosed', h.is_closed) order by h.day_of_week) as items
+      from listing_opening_hours h where h.listing_id = l.id
+    ) weekly on true
+    left join lateral (
+      select json_agg(json_build_object('date', h.date::text, 'opensAt', h.opens_at::text, 'closesAt', h.closes_at::text, 'isClosed', h.is_closed, 'note', h.note) order by h.date) as items
+      from listing_special_hours h where h.listing_id = l.id
+    ) special on true
     where l.id = ${listingId}::uuid
     limit 1
   `);
@@ -443,7 +604,21 @@ export async function getAllAmenities() {
 }
 
 export async function updateOwnerListing(input: unknown, actorId: string) {
-  const parsed = listingEditSchema.parse(input);
+  const raw = listingEditSchema.parse(input);
+  if (!raw.locationConfirmed) return updateOwnerListingLegacy(raw, actorId);
+  const parsed = raw as typeof raw & {
+    latitude: number;
+    longitude: number;
+    billingPeriod: "once" | "night" | "day" | "hour";
+    billingUnit: "inventory_unit" | "person" | "group";
+    includedPax: number;
+    extraPaxChargePhp: number;
+    capacityPerUnit: number;
+    inventoryUnitLabel: string;
+    minPax: number;
+    maxPax: number;
+    availableQuantity: number;
+  };
   if (parsed.photoUrl) {
     photoUploadSchema.parse({
       fileName: parsed.photoFileName,
@@ -452,7 +627,10 @@ export async function updateOwnerListing(input: unknown, actorId: string) {
     });
   }
 
-  await assertOwnerCanManageListing(actorId, parsed.listingId);
+  const listingCategory = await assertOwnerCanManageListing(
+    actorId,
+    parsed.listingId,
+  );
   const address = {
     street: parsed.street ?? "",
     barangay: parsed.barangay,
@@ -460,12 +638,30 @@ export async function updateOwnerListing(input: unknown, actorId: string) {
     province: parsed.province,
   };
   const price = parsed.ratePricePhp * 100;
+  const attributes = parseOwnerJson(parsed.categoryAttributes, listingCategory);
+  const weeklyHours = parseHours(parsed.weeklyHours, false);
+  const specialHours = parseHours(parsed.specialHours, true);
 
-  await db.execute(sql`
-    update listings
-    set name = ${parsed.name},
+  await db.transaction(async (tx) => {
+    const before = await tx.execute<{
+      address: Record<string, unknown>;
+      location: { latitude: number; longitude: number } | null;
+    }>(sql`
+      select address, case when location is null then null else json_build_object('latitude', ST_Y(location::geometry), 'longitude', ST_X(location::geometry)) end as location
+      from listings where id = ${parsed.listingId}::uuid for update
+    `);
+    await tx.execute(sql`
+      update listings
+      set name = ${parsed.name},
         description = ${parsed.description},
         address = ${JSON.stringify(address)}::jsonb,
+        attributes = ${JSON.stringify(attributes)}::jsonb,
+        location = ST_SetSRID(ST_MakePoint(${parsed.longitude}, ${parsed.latitude}), 4326)::geography,
+        location_source = 'owner'::location_source,
+        location_accuracy = 'exact'::location_accuracy,
+        location_verification_status = 'owner_provided'::listing_trust_status,
+        location_last_verified_at = now(),
+        location_verified_by = ${actorId}::uuid,
         contact_phone = ${parsed.contactPhone || null},
         contact_facebook = ${parsed.contactFacebook || null},
         contact_website = ${parsed.contactWebsite || null},
@@ -473,16 +669,16 @@ export async function updateOwnerListing(input: unknown, actorId: string) {
         price_max = greatest(coalesce(price_max, ${price}), ${price}),
         search_vector = to_tsvector('english', ${`${parsed.name} ${parsed.description} ${parsed.barangay} ${parsed.municipality}`}),
         updated_at = now()
-    where id = ${parsed.listingId}::uuid
-  `);
+      where id = ${parsed.listingId}::uuid
+    `);
 
-  await db.execute(sql`
+    await tx.execute(sql`
     delete from listing_amenities
     where listing_id = ${parsed.listingId}::uuid
-  `);
+    `);
 
-  if (parsed.amenitySlugs.length > 0) {
-    await db.execute(sql`
+    if (parsed.amenitySlugs.length > 0) {
+      await tx.execute(sql`
       insert into listing_amenities (listing_id, amenity_id)
       select ${parsed.listingId}::uuid, a.id
       from amenities a
@@ -492,33 +688,76 @@ export async function updateOwnerListing(input: unknown, actorId: string) {
       )})
       on conflict do nothing
     `);
-  }
+    }
 
-  await db.execute(sql`
-    insert into rate_plans (
-      listing_id,
-      name,
-      type,
-      price,
-      price_unit,
-      description,
-      active,
-      sort_order
-    )
-    values (
-      ${parsed.listingId}::uuid,
-      ${parsed.rateName},
-      ${parsed.rateType}::rate_plan_type,
-      ${price},
-      ${parsed.rateUnit}::price_unit,
-      ${parsed.rateDescription || null},
-      true,
-      1
-    )
-  `);
+    await tx.execute(
+      sql`update rate_plans set is_primary = false where listing_id = ${parsed.listingId}::uuid and active`,
+    );
+    const existingRate = await tx.execute<{ id: string }>(sql`
+      select id::text from rate_plans where listing_id = ${parsed.listingId}::uuid and active order by sort_order, id limit 1 for update
+    `);
+    if (existingRate.rows[0]?.id) {
+      await tx.execute(sql`
+        update rate_plans set name = ${parsed.rateName}, type = ${parsed.rateType}::rate_plan_type,
+          price = ${price}, price_unit = ${parsed.rateUnit}::price_unit,
+          billing_period = ${parsed.billingPeriod}, billing_unit = ${parsed.billingUnit},
+          included_pax = ${parsed.includedPax}, extra_pax_charge = ${parsed.extraPaxChargePhp * 100},
+          capacity_per_unit = ${parsed.capacityPerUnit}, inventory_unit_label = ${parsed.inventoryUnitLabel},
+          min_pax = ${parsed.minPax}, max_pax = ${parsed.maxPax}, available_quantity = ${parsed.availableQuantity},
+          mandatory_fee = ${(parsed.mandatoryFeePhp ?? 0) * 100}, mandatory_fee_label = ${parsed.mandatoryFeeLabel || null}, mandatory_fee_basis = 'fixed_per_booking',
+          fees_declared_at = now(), mandatory_charge_disclosure_status = ${(parsed.mandatoryFeePhp ?? 0) > 0 ? "itemized" : "none"},
+          pricing_trust_status = 'owner_provided'::listing_trust_status, pricing_verified_at = now(), pricing_valid_until = now() + interval '30 days',
+          availability_trust_status = 'owner_provided'::listing_trust_status, availability_verified_at = now(), availability_valid_until = now() + interval '7 days',
+          quote_eligibility = 'eligible', is_primary = true, description = ${parsed.rateDescription || null}
+        where id = ${existingRate.rows[0].id}::uuid
+      `);
+    } else {
+      await tx.execute(sql`
+        insert into rate_plans (listing_id, name, type, price, price_unit, billing_period, billing_unit, included_pax, extra_pax_charge, capacity_per_unit, inventory_unit_label, min_pax, max_pax, available_quantity, mandatory_fee, mandatory_fee_label, mandatory_fee_basis, fees_declared_at, mandatory_charge_disclosure_status, pricing_trust_status, pricing_verified_at, pricing_valid_until, availability_trust_status, availability_verified_at, availability_valid_until, quote_eligibility, is_primary, description, active, sort_order)
+        values (${parsed.listingId}::uuid, ${parsed.rateName}, ${parsed.rateType}::rate_plan_type, ${price}, ${parsed.rateUnit}::price_unit, ${parsed.billingPeriod}, ${parsed.billingUnit}, ${parsed.includedPax}, ${parsed.extraPaxChargePhp * 100}, ${parsed.capacityPerUnit}, ${parsed.inventoryUnitLabel}, ${parsed.minPax}, ${parsed.maxPax}, ${parsed.availableQuantity}, ${(parsed.mandatoryFeePhp ?? 0) * 100}, ${parsed.mandatoryFeeLabel || null}, 'fixed_per_booking', now(), ${(parsed.mandatoryFeePhp ?? 0) > 0 ? "itemized" : "none"}, 'owner_provided', now(), now() + interval '30 days', 'owner_provided', now(), now() + interval '7 days', 'eligible', true, ${parsed.rateDescription || null}, true, 1)
+      `);
+    }
 
-  if (parsed.photoUrl) {
-    await db.execute(sql`
+    await tx.execute(
+      sql`delete from listing_opening_hours where listing_id = ${parsed.listingId}::uuid`,
+    );
+    for (const hour of weeklyHours) {
+      await tx.execute(
+        sql`insert into listing_opening_hours (listing_id, day_of_week, opens_at, closes_at, is_closed) values (${parsed.listingId}::uuid, ${hour.dayOfWeek}, ${hour.opensAt}, ${hour.closesAt}, ${hour.isClosed})`,
+      );
+    }
+    await tx.execute(
+      sql`delete from listing_special_hours where listing_id = ${parsed.listingId}::uuid`,
+    );
+    for (const hour of specialHours) {
+      await tx.execute(
+        sql`insert into listing_special_hours (listing_id, date, opens_at, closes_at, is_closed, note) values (${parsed.listingId}::uuid, ${hour.date}::date, ${hour.opensAt}, ${hour.closesAt}, ${hour.isClosed}, ${hour.note})`,
+      );
+    }
+
+    const source = await tx.execute<{ id: string }>(sql`
+      insert into listing_sources (listing_id, provider, rights_classification, retention_classification, last_checked_at)
+      values (${parsed.listingId}::uuid, 'owner_portal', 'owner_provided'::source_rights_classification, 'retain'::source_retention_classification, now())
+      returning id::text as id
+    `);
+    const sourceId = source.rows[0]?.id;
+    for (const fieldName of [
+      "location",
+      "rate",
+      "capacity",
+      "hours",
+      "attributes",
+    ]) {
+      await tx.execute(
+        sql`update listing_field_provenance set is_canonical = false, updated_at = now() where listing_id = ${parsed.listingId}::uuid and field_name = ${fieldName} and is_canonical`,
+      );
+      await tx.execute(
+        sql`insert into listing_field_provenance (listing_id, field_name, source_id, trust_status, is_canonical, checked_at, source_note) values (${parsed.listingId}::uuid, ${fieldName}, ${sourceId}::uuid, 'owner_provided'::listing_trust_status, true, now(), 'Owner confirmed this field in the portal.')`,
+      );
+    }
+
+    if (parsed.photoUrl) {
+      const photo = await tx.execute<{ id: string }>(sql`
       insert into listing_media (
         listing_id,
         url,
@@ -535,44 +774,179 @@ export async function updateOwnerListing(input: unknown, actorId: string) {
         ${`Owner photo for ${parsed.name}; EXIF GPS stripped before production storage.`},
         99,
         ${actorId}::uuid,
-        true
+        false
       )
+      returning id::text as id
     `);
-  }
+      const photoId = photo.rows[0]?.id;
+      if (!photoId)
+        throw new Error("Photo moderation record could not be created.");
+      await tx.execute(sql`
+        insert into moderation_queue (type, reference_id, reason)
+        values ('photo'::moderation_type, ${photoId}::uuid, 'Owner photo pending moderation.')
+      `);
+    }
 
-  await db.execute(sql`
+    await tx.execute(sql`
     insert into audit_log (actor_id, action, entity_type, entity_id, changes)
     values (
       ${actorId}::uuid,
       'listing.owner_update',
       'listing',
       ${parsed.listingId}::uuid,
-      ${JSON.stringify({ fields: ["basics", "amenities", "rates", "contact", "photos"] })}::jsonb
+      ${JSON.stringify({ previousLocation: before.rows[0]?.location ?? null, fields: ["location", "rate", "capacity", "hours", "provenance", "attributes", "amenities", "contact"] })}::jsonb
     )
   `);
+  });
+}
+
+async function updateOwnerListingLegacy(
+  parsed: z.output<typeof listingEditSchema>,
+  actorId: string,
+) {
+  if (parsed.photoUrl) {
+    photoUploadSchema.parse({
+      fileName: parsed.photoFileName,
+      contentType: parsed.photoContentType,
+      sizeBytes: parsed.photoSizeBytes,
+    });
+  }
+  await assertOwnerCanManageListing(actorId, parsed.listingId);
+  const price = parsed.ratePricePhp * 100;
+  const address = {
+    street: parsed.street ?? "",
+    barangay: parsed.barangay,
+    municipality: parsed.municipality,
+    province: parsed.province,
+  };
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`update listings set name = ${parsed.name}, description = ${parsed.description}, address = ${JSON.stringify(address)}::jsonb, contact_phone = ${parsed.contactPhone || null}, contact_facebook = ${parsed.contactFacebook || null}, contact_website = ${parsed.contactWebsite || null}, price_min = ${price}, price_max = greatest(coalesce(price_max, ${price}), ${price}), updated_at = now() where id = ${parsed.listingId}::uuid`,
+    );
+    await tx.execute(
+      sql`insert into rate_plans (listing_id, name, type, price, price_unit, description, active, sort_order) values (${parsed.listingId}::uuid, ${parsed.rateName}, ${parsed.rateType}::rate_plan_type, ${price}, ${parsed.rateUnit}::price_unit, ${parsed.rateDescription || null}, true, 99)`,
+    );
+    if (parsed.photoUrl) {
+      const photo = await tx.execute<{ id: string }>(
+        sql`insert into listing_media (listing_id, url, type, caption, sort_order, uploaded_by, moderated) values (${parsed.listingId}::uuid, ${parsed.photoUrl}, 'photo', ${`Owner photo for ${parsed.name}; EXIF GPS stripped before production storage.`}, 99, ${actorId}::uuid, false) returning id::text as id`,
+      );
+      const photoId = photo.rows[0]?.id;
+      if (!photoId)
+        throw new Error("Photo moderation record could not be created.");
+      await tx.execute(sql`
+        insert into moderation_queue (type, reference_id, reason)
+        values ('photo'::moderation_type, ${photoId}::uuid, 'Owner photo pending moderation.')
+      `);
+    }
+    await tx.execute(
+      sql`insert into audit_log (actor_id, action, entity_type, entity_id, changes) values (${actorId}::uuid, 'listing.owner_update_legacy', 'listing', ${parsed.listingId}::uuid, ${JSON.stringify({ fields: ["basics", "rate", "contact"] })}::jsonb)`,
+    );
+  });
+}
+
+function parseOwnerJson(
+  value: string,
+  category: string,
+): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error();
+    const attributes = parsed as Record<string, unknown>;
+    const allowedFields: Record<string, readonly string[]> = {
+      resort: ["day_use", "overnight", "room_count", "beach_access"],
+      room: ["room_type", "air_conditioned", "bed_count"],
+      restaurant: ["cuisine", "halal", "reservations"],
+      activity: ["duration_hours", "includes", "max_pax"],
+      service: ["service_type", "duration_hours", "max_pax"],
+    };
+    const allowed = allowedFields[category] ?? [];
+    if (Object.keys(attributes).some((key) => !allowed.includes(key)))
+      throw new Error(
+        "Use only the supported category details shown in the form.",
+      );
+    return attributes;
+  } catch {
+    throw new Error("Enter valid supported category details.");
+  }
+}
+
+function parseHours(value: string, special: boolean) {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) throw new Error();
+    return parsed.map((item) => {
+      const record =
+        item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+      const opensAt =
+        typeof record?.opensAt === "string" ? record.opensAt : null;
+      const closesAt =
+        typeof record?.closesAt === "string" ? record.closesAt : null;
+      const isClosed = record?.isClosed === true;
+      const dayOfWeek = Number(record?.dayOfWeek);
+      const date = typeof record?.date === "string" ? record.date : null;
+      if (
+        (!special &&
+          (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6)) ||
+        (special && !/^\d{4}-\d{2}-\d{2}$/.test(date ?? "")) ||
+        (!isClosed &&
+          (!/^\d{2}:\d{2}$/.test(opensAt ?? "") ||
+            !/^\d{2}:\d{2}$/.test(closesAt ?? "") ||
+            opensAt === closesAt))
+      )
+        throw new Error();
+      return {
+        dayOfWeek,
+        date,
+        opensAt: isClosed ? null : opensAt,
+        closesAt: isClosed ? null : closesAt,
+        isClosed,
+        note:
+          typeof record?.note === "string" ? record.note.slice(0, 240) : null,
+      };
+    });
+  } catch {
+    throw new Error(`Enter valid ${special ? "special" : "weekly"} hours.`);
+  }
 }
 
 export async function setAvailabilityBlock(input: unknown, actorId: string) {
   const parsed = availabilitySchema.parse(input);
   await assertOwnerCanManageListing(actorId, parsed.listingId);
 
-  await db.execute(sql`
-    delete from availability_blocks
-    where listing_id = ${parsed.listingId}::uuid
-      and rate_plan_id is null
-      and date = ${parsed.date}::date
-  `);
-
-  await db.execute(sql`
-    insert into availability_blocks (listing_id, rate_plan_id, date, available, quantity)
-    values (
-      ${parsed.listingId}::uuid,
-      null,
-      ${parsed.date}::date,
-      ${parsed.available},
-      ${parsed.quantity}
-    )
-  `);
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${parsed.listingId}))`,
+    );
+    if (parsed.ratePlanId) {
+      const ownedRate = await tx.execute(sql`
+        select 1 from rate_plans where id = ${parsed.ratePlanId}::uuid and listing_id = ${parsed.listingId}::uuid
+      `);
+      if (ownedRate.rows.length === 0)
+        throw new Error("Rate plan does not belong to this listing.");
+      await tx.execute(sql`
+        insert into availability_blocks (listing_id, rate_plan_id, date, available, quantity)
+        values (${parsed.listingId}::uuid, ${parsed.ratePlanId}::uuid, ${parsed.date}::date, ${parsed.available}, ${parsed.quantity})
+        on conflict (listing_id, rate_plan_id, date) where rate_plan_id is not null
+        do update set available = excluded.available, quantity = excluded.quantity
+      `);
+    } else {
+      await tx.execute(sql`
+        insert into availability_blocks (listing_id, rate_plan_id, date, available, quantity)
+        values (${parsed.listingId}::uuid, null, ${parsed.date}::date, ${parsed.available}, ${parsed.quantity})
+        on conflict (listing_id, date) where rate_plan_id is null
+        do update set available = excluded.available, quantity = excluded.quantity
+      `);
+    }
+    await tx.execute(sql`
+      update rate_plans set availability_trust_status = 'owner_provided'::listing_trust_status,
+        availability_verified_at = now(), availability_valid_until = now() + interval '7 days'
+      where listing_id = ${parsed.listingId}::uuid
+      ${parsed.ratePlanId ? sql`and id = ${parsed.ratePlanId}::uuid` : sql``}
+    `);
+  });
 
   await db.execute(sql`
     insert into audit_log (actor_id, action, entity_type, entity_id, changes)
@@ -581,7 +955,7 @@ export async function setAvailabilityBlock(input: unknown, actorId: string) {
       'availability.owner_update',
       'listing',
       ${parsed.listingId}::uuid,
-      ${JSON.stringify({ date: parsed.date, available: parsed.available })}::jsonb
+      ${JSON.stringify({ date: parsed.date, ratePlanId: parsed.ratePlanId ?? null, available: parsed.available, quantity: parsed.quantity })}::jsonb
     )
   `);
 }
@@ -880,8 +1254,8 @@ async function assignListingOwnership({
 
 async function assertOwnerCanManageListing(actorId: string, listingId: string) {
   const parsedListingId = uuidSchema.parse(listingId);
-  const result = await db.execute<{ ok: boolean }>(sql`
-    select true as ok
+  const result = await db.execute<{ category: string }>(sql`
+    select l.category
     from listings l
     join businesses b on b.id = l.business_id
     where l.id = ${parsedListingId}::uuid
@@ -889,9 +1263,11 @@ async function assertOwnerCanManageListing(actorId: string, listingId: string) {
     limit 1
   `);
 
-  if (!result.rows[0]?.ok) {
+  const listing = result.rows[0];
+  if (!listing) {
     throw new AuthorizationError("Owner access required");
   }
+  return listing.category;
 }
 
 function getClaimUploadData(parsed: z.output<typeof claimRequestSchema>) {

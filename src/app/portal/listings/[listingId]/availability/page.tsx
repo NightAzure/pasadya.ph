@@ -59,6 +59,20 @@ export default async function AvailabilityPage({
       >
         <input name="listingId" type="hidden" value={listing.id} />
         <label className="block">
+          <span className="text-sm font-medium">Inventory scope</span>
+          <select
+            className="mt-2 min-h-12 w-full rounded-sm border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            name="ratePlanId"
+          >
+            <option value="">All rate plans (shared listing inventory)</option>
+            {listing.ratePlans.map((rate) => (
+              <option key={rate.id} value={rate.id}>
+                {rate.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
           <span className="text-sm font-medium">Date</span>
           <input
             className="mt-2 min-h-12 w-full rounded-sm border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"

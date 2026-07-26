@@ -16,6 +16,9 @@ export function SearchControls({
   filters: SearchFilters;
   compact?: boolean;
 }) {
+  const hasExactTripInputs = Boolean(
+    filters.checkIn && filters.checkOut && filters.pax,
+  );
   return (
     <form
       action="/search"
@@ -60,6 +63,67 @@ export function SearchControls({
 
       {!compact ? (
         <>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-semibold">Exact trip total</legend>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Enter visit details to compare fee-aware totals. Without all
+              three, search shows starting prices only.
+            </p>
+            <div className="grid gap-3">
+              <label className="grid gap-1 text-sm font-medium">
+                Check-in
+                <input
+                  className="min-h-11 rounded-sm border bg-background px-3 text-base font-normal outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                  defaultValue={filters.checkIn}
+                  name="checkIn"
+                  type="date"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium">
+                Check-out
+                <input
+                  className="min-h-11 rounded-sm border bg-background px-3 text-base font-normal outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                  defaultValue={filters.checkOut}
+                  name="checkOut"
+                  type="date"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium">
+                Guests
+                <input
+                  className="min-h-11 rounded-sm border bg-background px-3 text-base font-normal outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                  defaultValue={filters.pax}
+                  max="999"
+                  min="1"
+                  name="pax"
+                  type="number"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium">
+                Units (optional)
+                <input
+                  className="min-h-11 rounded-sm border bg-background px-3 text-base font-normal outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                  defaultValue={filters.requestedUnits}
+                  max="999"
+                  min="1"
+                  name="requestedUnits"
+                  type="number"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium">
+                Visit hours (hourly rates only)
+                <input
+                  className="min-h-11 rounded-sm border bg-background px-3 text-base font-normal outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                  defaultValue={filters.durationHours}
+                  max="24"
+                  min="1"
+                  name="durationHours"
+                  type="number"
+                />
+              </label>
+            </div>
+          </fieldset>
+
           <fieldset className="space-y-2">
             <legend className="text-sm font-semibold">Category</legend>
             <div className="grid gap-2">
@@ -111,12 +175,15 @@ export function SearchControls({
 
           <div className="grid gap-3">
             <label className="grid gap-1 text-sm font-medium">
-              Max price
+              {hasExactTripInputs
+                ? "Starting-price cap (not trip total)"
+                : "Max starting price"}
               <select
                 className="min-h-11 rounded-sm border bg-background px-3 text-sm font-normal outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
                 defaultValue={
                   filters.maxPrice ? String(filters.maxPrice / 100) : ""
                 }
+                disabled={hasExactTripInputs}
                 name="maxPrice"
               >
                 <option value="">Any budget</option>
@@ -125,6 +192,12 @@ export function SearchControls({
                 <option value="1500">Under PHP 1,500</option>
                 <option value="3000">Under PHP 3,000</option>
               </select>
+              {hasExactTripInputs ? (
+                <span className="text-xs font-normal leading-5 text-muted-foreground">
+                  Disabled while exact-trip totals are shown. Verified total
+                  budget filters belong to Phase 5.
+                </span>
+              ) : null}
             </label>
 
             <label className="grid gap-1 text-sm font-medium">

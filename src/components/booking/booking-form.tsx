@@ -7,7 +7,20 @@ import {
   type BookingFormListing,
 } from "@/components/booking/contracts";
 
-export function BookingForm({ listing }: { listing: BookingFormListing }) {
+export function BookingForm({
+  listing,
+  initialQuote,
+}: {
+  listing: BookingFormListing;
+  initialQuote?: {
+    ratePlanId?: string;
+    checkIn?: string;
+    checkOut?: string;
+    pax?: number;
+    requestedUnits?: number;
+    durationHours?: number;
+  };
+}) {
   const firstPlan = listing.ratePlans[0];
   const isInstant = listing.bookingMode === "instant";
   const downpaymentPct = listing.downpaymentPct ?? 50;
@@ -26,6 +39,7 @@ export function BookingForm({ listing }: { listing: BookingFormListing }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             autoComplete="off"
+            defaultValue={initialQuote?.checkIn}
             label="Check-in"
             name="checkIn"
             required
@@ -33,13 +47,14 @@ export function BookingForm({ listing }: { listing: BookingFormListing }) {
           />
           <Field
             autoComplete="off"
+            defaultValue={initialQuote?.checkOut}
             label="Check-out"
             name="checkOut"
             required
             type="date"
           />
           <Field
-            defaultValue="2"
+            defaultValue={String(initialQuote?.pax ?? 2)}
             inputMode="numeric"
             label="Guests"
             min="1"
@@ -47,19 +62,41 @@ export function BookingForm({ listing }: { listing: BookingFormListing }) {
             required
             type="number"
           />
+          <Field
+            defaultValue={String(initialQuote?.requestedUnits ?? 1)}
+            inputMode="numeric"
+            label="Rooms or units"
+            min="1"
+            name="requestedUnits"
+            required
+            type="number"
+          />
+          <Field
+            defaultValue={
+              initialQuote?.durationHours
+                ? String(initialQuote.durationHours)
+                : undefined
+            }
+            inputMode="numeric"
+            label="Visit duration (hours, only for hourly rates)"
+            max="24"
+            min="1"
+            name="durationHours"
+            type="number"
+          />
           <label className="block">
             <span className="text-sm font-medium">Rate plan</span>
             <select
               className="mt-2 min-h-12 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              defaultValue={firstPlan?.name ?? ""}
-              name="ratePlanName"
+              defaultValue={initialQuote?.ratePlanId ?? firstPlan?.id ?? ""}
+              name="ratePlanId"
               required
             >
               {listing.ratePlans.length === 0 ? (
                 <option value="">Owner has not published a rate yet</option>
               ) : (
                 listing.ratePlans.map((plan) => (
-                  <option key={`${plan.name}-${plan.type}`} value={plan.name}>
+                  <option key={plan.id} value={plan.id}>
                     {plan.name} · {formatBookingMoney(plan.price)}
                   </option>
                 ))
@@ -169,6 +206,7 @@ function Field({
   inputMode,
   label,
   min,
+  max,
   name,
   required,
   type,
@@ -178,6 +216,7 @@ function Field({
   inputMode?: "numeric" | "tel";
   label: string;
   min?: string;
+  max?: string;
   name: string;
   required?: boolean;
   type: string;
@@ -191,6 +230,7 @@ function Field({
         defaultValue={defaultValue}
         inputMode={inputMode}
         min={min}
+        max={max}
         name={name}
         required={required}
         type={type}

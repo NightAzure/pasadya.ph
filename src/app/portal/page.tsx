@@ -36,7 +36,9 @@ export default async function PortalPage({
     >
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-primary">Pasadya business portal</p>
+          <p className="text-sm font-medium text-primary">
+            Pasadya business portal
+          </p>
           <h1 className="text-2xl font-semibold">My Business</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Manage claimed listings, availability, photos, and today&apos;s

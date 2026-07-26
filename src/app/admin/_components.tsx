@@ -13,6 +13,7 @@ export function AdminNav({ active }: { active: string }) {
     ["moderation", "Moderation", "/admin"],
     ["bookings", "Bookings", "/admin/bookings"],
     ["listings", "Listings", "/admin/listings"],
+    ["data-quality", "Data quality", "/admin/data-quality"],
     ["routes", "Routes", "/admin/routes"],
     ["users", "Users", "/admin/users"],
     ["metrics", "Metrics", "/admin/metrics"],
@@ -21,7 +22,10 @@ export function AdminNav({ active }: { active: string }) {
   ] as const;
 
   return (
-    <nav aria-label="Admin sections" className="mb-6 overflow-x-auto">
+    <nav
+      aria-label="Admin sections"
+      className="mb-6 w-full max-w-full overflow-x-auto"
+    >
       <div className="flex min-w-max gap-2 rounded-lg border bg-card p-2 shadow-sm">
         {links.map(([key, label, href]) => (
           <Link

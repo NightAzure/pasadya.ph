@@ -6,11 +6,16 @@ import { List, Map } from "lucide-react";
 import { ListingCard } from "@/components/discovery/listing-card";
 import { MapPanel } from "@/components/discovery/map-panel";
 import type { DiscoveryListing } from "@/modules/listings/discovery";
+import type { QuoteResult } from "@/modules/pricing/service";
 
 export function SearchResultsShell({
   listings,
+  quotesByListing,
+  showingExactQuotes = false,
 }: {
   listings: DiscoveryListing[];
+  quotesByListing?: Record<string, QuoteResult>;
+  showingExactQuotes?: boolean;
 }) {
   const [view, setView] = useState<"list" | "map">("list");
 
@@ -20,7 +25,8 @@ export function SearchResultsShell({
         <button
           className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-sm text-sm font-medium ${
             view === "list" ? "bg-primary text-primary-foreground" : ""
-          }`}
+          } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
+          aria-pressed={view === "list"}
           onClick={() => setView("list")}
           type="button"
         >
@@ -30,7 +36,8 @@ export function SearchResultsShell({
         <button
           className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-sm text-sm font-medium ${
             view === "map" ? "bg-primary text-primary-foreground" : ""
-          }`}
+          } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
+          aria-pressed={view === "map"}
           onClick={() => setView("map")}
           type="button"
         >
@@ -47,6 +54,8 @@ export function SearchResultsShell({
                 key={listing.id}
                 listing={listing}
                 priority={index < 2}
+                quoteResult={quotesByListing?.[listing.id]}
+                showingExactQuote={showingExactQuotes}
               />
             ))
           ) : (
@@ -66,7 +75,11 @@ export function SearchResultsShell({
               : "block"
           }
         >
-          <MapPanel listings={listings} />
+          <MapPanel
+            listings={listings}
+            quotesByListing={quotesByListing}
+            showingExactQuotes={showingExactQuotes}
+          />
         </div>
       </div>
     </div>

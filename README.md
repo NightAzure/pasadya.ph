@@ -45,6 +45,7 @@ Read these in order for the full picture:
 | 06 | [UI/UX Design](docs/06-ui-ux-design.md) | Design principles, page inventory, design system |
 | 07 | [Transport Module](docs/07-transport-module.md) | Jeepney/bus/ferry routes, community sourcing, routing engine |
 | 08 | [Roadmap & Operations](docs/08-roadmap-and-operations.md) | Phased delivery, data seeding, compliance, metrics |
+| 09 | [Search 2.0 Production Program](docs/09-search-2.0-production-program.md) | Research, design, data, search, map, filters, transport, and staged production rollout |
 
 ## Development Execution Docs
 

@@ -5,6 +5,10 @@ import {
   expireUnpaidBookings,
   reconcilePaymentRecords,
 } from "@/modules/payments";
+import {
+  rebuildListingStopAccess,
+  rebuildRouteEdges,
+} from "@/modules/transport/graph";
 
 import type { JobHandler } from "./types";
 
@@ -216,10 +220,35 @@ export const handleSearchRefresh: JobHandler = async () => {
     )
     returning l.id::text
   `);
+  let transportGraphRefreshed = true;
+  try {
+    await rebuildRouteEdges();
+    await rebuildListingStopAccess();
+  } catch {
+    transportGraphRefreshed = false;
+  }
+
+  const { invalidateSearchCache } = await import("@/modules/search/cache");
+  const { recordSearchMetric } = await import(
+    "@/modules/search/observability"
+  );
+  const cache = invalidateSearchCache("search-refresh");
+  recordSearchMetric({
+    type: "freshness",
+    kind: "search_index",
+    stale: false,
+  });
+  recordSearchMetric({
+    type: "freshness",
+    kind: "route_data",
+    stale: !transportGraphRefreshed,
+  });
 
   return {
     refreshedAt: new Date(),
     refreshedCount: result.rows.length,
+    transportGraphRefreshed,
+    searchCache: cache,
   };
 };
 
