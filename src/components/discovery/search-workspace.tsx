@@ -1439,6 +1439,7 @@ function MapSheetCard({
     >
       <button
         aria-label={`Select ${listing.name}`}
+        aria-pressed={isSelected}
         className={styles.mapSheetCardHit}
         onClick={onSelect}
         type="button"
@@ -1548,6 +1549,7 @@ function MapSheetRowCard({
     >
       <button
         aria-label={`Select ${listing.name}`}
+        aria-pressed={isSelected}
         className={styles.mapSheetRowCardHit}
         onClick={onSelect}
         type="button"

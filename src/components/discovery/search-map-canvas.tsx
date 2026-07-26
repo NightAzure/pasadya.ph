@@ -65,6 +65,7 @@ export default function SearchMapCanvas({
   const mapRef = useRef<MapLibreMap | null>(null);
   const fittedInitialBounds = useRef(false);
   const suppressMoveUntil = useRef(0);
+  const focusedListingId = useRef<string | null>(null);
   const [status, setStatus] = useState<
     "loading" | "ready" | "unavailable" | "error"
   >(() => (mapStyleUrl() ? "loading" : "unavailable"));
@@ -284,6 +285,29 @@ export default function SearchMapCanvas({
   }, [resultBounds]);
 
   useEffect(() => {
+    if (!selectedListingId) {
+      focusedListingId.current = null;
+      return;
+    }
+    if (status !== "ready") return;
+    if (focusedListingId.current === selectedListingId) return;
+    const listing = listings.find((item) => item.id === selectedListingId);
+    const map = mapRef.current;
+    if (!map || !listing?.coordinates) return;
+    focusedListingId.current = selectedListingId;
+    suppressMoveUntil.current = Date.now() + 900;
+    const targetZoom = Math.max(map.getZoom(), 14);
+    map.easeTo({
+      center: [listing.coordinates.lng, listing.coordinates.lat],
+      zoom: targetZoom,
+      duration: 750,
+      padding: mobileFullscreen
+        ? { top: 72, bottom: 300, left: 36, right: 64 }
+        : { top: 48, bottom: 48, left: 48, right: 48 },
+    });
+  }, [listings, mobileFullscreen, selectedListingId, status]);
+
+  useEffect(() => {
     mapRef.current?.resize();
     if (!isFullMap && !mobileFullscreen) return;
     const section = fullMapRef.current;
@@ -410,30 +434,32 @@ export default function SearchMapCanvas({
           </div>
         ) : null}
         {mobileFullscreen && onReturnToList ? (
-          <div className={styles.mobileMapTopbar}>
-            <button
-              aria-label="Return to list"
-              className={styles.mobileMapBack}
-              onClick={onReturnToList}
-              type="button"
-            >
-              <ChevronLeft aria-hidden="true" />
-            </button>
-            <p className={styles.mobileMapTitle}>
-              Search places in Samal & Davao
-            </p>
-          </div>
+          <button
+            aria-label="Return to list"
+            className={styles.mobileMapBack}
+            onClick={onReturnToList}
+            type="button"
+          >
+            <ChevronLeft aria-hidden="true" />
+          </button>
         ) : null}
         <div className={styles.mapControls}>
-          <MapControl label="Zoom in" onClick={() => mapRef.current?.zoomIn()}>
-            <ZoomIn aria-hidden="true" />
-          </MapControl>
-          <MapControl
-            label="Zoom out"
-            onClick={() => mapRef.current?.zoomOut()}
-          >
-            <ZoomOut aria-hidden="true" />
-          </MapControl>
+          {!mobileFullscreen ? (
+            <>
+              <MapControl
+                label="Zoom in"
+                onClick={() => mapRef.current?.zoomIn()}
+              >
+                <ZoomIn aria-hidden="true" />
+              </MapControl>
+              <MapControl
+                label="Zoom out"
+                onClick={() => mapRef.current?.zoomOut()}
+              >
+                <ZoomOut aria-hidden="true" />
+              </MapControl>
+            </>
+          ) : null}
           <MapControl
             label={`Use my current location. ${LOCATION_PRIVACY_SHORT}`}
             onClick={locate}

@@ -1484,48 +1484,39 @@
   backdrop-filter: blur(10px);
 }
 
-.mobileMapTopbar {
+.mobileMapBack {
   position: absolute;
   z-index: 18;
-  top: max(10px, env(safe-area-inset-top));
-  right: 64px;
-  left: 10px;
-  display: flex;
-  min-height: 46px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(20, 33, 61, 0.13);
-  border-radius: 13px 13px 28px 13px;
-  background: rgba(255, 253, 248, 0.95);
-  box-shadow: 0 10px 26px rgba(20, 33, 61, 0.15);
-  padding: 4px 12px 4px 4px;
-  backdrop-filter: blur(14px);
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(8, 127, 120, 0.35);
+  border-radius: 11px 11px 20px 11px;
+  background: var(--pd-teal, #087f78);
+  box-shadow: 0 8px 20px rgba(8, 127, 120, 0.32);
+  color: #ffffff;
+  backdrop-filter: blur(10px);
 }
 
-.mobileMapBack {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: 10px 10px 20px 10px;
-  background: var(--pd-ink, #14213d);
-  color: #ffffff;
+.mobileMapBack:hover {
+  background: var(--pd-teal-dark, #07655f);
+}
+
+.mobileMapBack:focus-visible {
+  outline: 2px solid var(--pd-teal, #087f78);
+  outline-offset: 2px;
+}
+
+.mobileMapBack:active {
+  transform: scale(0.96);
 }
 
 .mobileMapBack svg {
-  width: 18px;
-  height: 18px;
-}
-
-.mobileMapTitle {
-  overflow: hidden;
-  color: var(--pd-ink, #14213d);
-  font-size: 12px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  width: 20px;
+  height: 20px;
 }
 
 .returnListButton {
@@ -2108,6 +2099,17 @@
   border-radius: 14px;
   background: #ffffff;
   box-shadow: 0 8px 22px rgba(20, 33, 61, 0.1);
+  transition:
+    border-color 320ms var(--search-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    box-shadow 320ms var(--search-ease, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+/* Must follow .mapSheetRowCard so selected border/shadow aren't overridden. */
+.mapSheetRowCard.mapSheetCardActive {
+  border-color: rgba(8, 127, 120, 0.45);
+  box-shadow:
+    0 0 0 3px rgba(8, 127, 120, 0.12),
+    0 12px 30px rgba(20, 33, 61, 0.14);
 }
 
 .mapSheetRowCardHit {
@@ -2121,6 +2123,7 @@
   padding: 8px;
   text-align: left;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .mapSheetRowCardMedia {
@@ -2472,6 +2475,7 @@
   }
 
   .mobileMapSection .mapControls {
+    top: max(12px, env(safe-area-inset-top));
     bottom: auto;
   }
 }
