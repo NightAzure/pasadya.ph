@@ -22,7 +22,14 @@ import {
   Waves,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { MenuSelect } from "@/components/ui/menu-select";
@@ -437,231 +444,252 @@ export function SearchWorkspace({ initialQuery, initialResponse }: Props) {
       </div>
 
       <div className={styles.workspaceBody}>
-      <div className={styles.summaryRow}>
-        <div className={styles.resultSummary}>
-          <p aria-live="polite" className={styles.resultCount}>
-            <MapPin aria-hidden="true" />
-            {response?.totalCount ?? 0} exact{" "}
-            {response?.totalCount === 1 ? "place" : "places"}
-          </p>
+        <div className={styles.summaryRow}>
+          <div className={styles.resultSummary}>
+            <p aria-live="polite" className={styles.resultCount}>
+              <MapPin aria-hidden="true" />
+              {response?.totalCount ?? 0} exact{" "}
+              {response?.totalCount === 1 ? "place" : "places"}
+            </p>
+          </div>
+          <MenuSelect
+            ariaLabel="Sort places"
+            className={styles.sortControl}
+            label="Sort"
+            leadingIcon={<ArrowUpDown aria-hidden="true" />}
+            onChange={(sort) => updatePublicState({ sort })}
+            options={[...sortOptions]}
+            value={query.sort}
+            variant="pill"
+          />
         </div>
-        <MenuSelect
-          ariaLabel="Sort places"
-          className={styles.sortControl}
-          label="Sort"
-          leadingIcon={<ArrowUpDown aria-hidden="true" />}
-          onChange={(sort) => updatePublicState({ sort })}
-          options={[...sortOptions]}
-          value={query.sort}
-          variant="pill"
-        />
-      </div>
 
-      <div className={styles.mobileCategoryRow}>
-        <CategoryRail
-          activeCategories={query.categories}
-          onSelect={(category) =>
-            updatePublicState({ category: category || undefined })
-          }
-        />
-      </div>
-
-      <AppliedChips
-        onClear={() => {
-          setSessionRoute(emptyRouteDraft());
-          updatePublicState(clearableParams());
-        }}
-        onRemove={removeChip}
-        query={query}
-      />
-
-      {apiState.status === "error" ? (
-        <div className={cn("mt-3", styles.errorState)} role="alert">
-          <h2 className="text-xl font-semibold">Couldn’t refresh results</h2>
-          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
-            {apiState.message}
-          </p>
-          <Button
-            className="mt-4"
-            onClick={() => void fetchResults(query)}
-            type="button"
-          >
-            Try again
-          </Button>
+        <div className={styles.mobileCategoryRow}>
+          <CategoryRail
+            activeCategories={query.categories}
+            onSelect={(category) =>
+              updatePublicState({ category: category || undefined })
+            }
+          />
         </div>
-      ) : null}
 
-      {response?.totalCount === 0 && !isLoading ? (
-        <EmptySearch
-          diagnostics={response.diagnostics.failedConstraints}
-          onClear={() => updatePublicState(clearableParams())}
-          onEdit={() => setFiltersOpen(true)}
+        <AppliedChips
+          onClear={() => {
+            setSessionRoute(emptyRouteDraft());
+            updatePublicState(clearableParams());
+          }}
+          onRemove={removeChip}
+          query={query}
         />
-      ) : response ? (
-        <div className={cn(styles.split, styles.splitWithMap)}>
-          <div
-            aria-busy={isLoading}
-            className={cn(
-              styles.listPane,
-              view === "map" && styles.listHiddenMobile,
-            )}
-          >
+
+        {apiState.status === "error" ? (
+          <div className={cn("mt-3", styles.errorState)} role="alert">
+            <h2 className="text-xl font-semibold">Couldn’t refresh results</h2>
+            <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
+              {apiState.message}
+            </p>
+            <Button
+              className="mt-4"
+              onClick={() => void fetchResults(query)}
+              type="button"
+            >
+              Try again
+            </Button>
+          </div>
+        ) : null}
+
+        {response ? (
+          <div className={cn(styles.split, styles.splitWithMap)}>
             <div
+              aria-busy={isLoading}
               className={cn(
-                styles.resultsList,
-                isLoading && styles.resultsLoading,
+                styles.listPane,
+                view === "map" && styles.listHiddenMobile,
               )}
             >
-              {response.listings.map((listing, index) => (
-                <SearchResultCard
-                  cardRef={(node) => {
-                    cardRefs.current[listing.id] = node;
-                  }}
-                  isSelected={selectedSlug === listing.slug}
-                  key={listing.id}
-                  listing={listing}
-                  onHover={setHoveredListingId}
-                  onSelect={() => selectListing(listing)}
-                  priority={index < 2}
-                  tripContext={tripContext}
-                />
-              ))}
-              {isLoading && response.listings.length === 0 ? (
-                <CardSkeletons />
-              ) : null}
+              {response.totalCount === 0 && !isLoading ? (
+                <>
+                  <EmptySearch
+                    diagnostics={response.diagnostics.failedConstraints}
+                    onClear={() => updatePublicState(clearableParams())}
+                    onEdit={() => setFiltersOpen(true)}
+                  />
+                  {nearMatches && nearMatches.totalCount > 0 ? (
+                    <section
+                      aria-labelledby="near-matches"
+                      className="mt-6 border-t pt-5"
+                    >
+                      <h2 className="text-lg font-semibold" id="near-matches">
+                        Near matches
+                      </h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        These do not meet every selected condition.{" "}
+                        {response.diagnostics.failedConstraints[0]}
+                      </p>
+                      <div
+                        className={cn(
+                          "mt-4",
+                          styles.resultsList,
+                          styles.resultsGrid,
+                        )}
+                      >
+                        {nearMatches.listings.map((listing) => (
+                          <SearchResultCard
+                            isSelected={selectedSlug === listing.slug}
+                            key={listing.id}
+                            listing={listing}
+                            onSelect={() => selectListing(listing)}
+                            tripContext={undefined}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                </>
+              ) : (
+                <div
+                  className={cn(
+                    styles.resultsList,
+                    isLoading && styles.resultsLoading,
+                  )}
+                >
+                  {response.listings.map((listing, index) => (
+                    <SearchResultCard
+                      cardRef={(node) => {
+                        cardRefs.current[listing.id] = node;
+                      }}
+                      isSelected={selectedSlug === listing.slug}
+                      key={listing.id}
+                      listing={listing}
+                      onHover={setHoveredListingId}
+                      onSelect={() => selectListing(listing)}
+                      priority={index < 2}
+                      tripContext={tripContext}
+                    />
+                  ))}
+                  {isLoading && response.listings.length === 0 ? (
+                    <CardSkeletons />
+                  ) : null}
+                </div>
+              )}
             </div>
-          </div>
-          <div
-            className={
-              view === "map" ? styles.mobileMapHost : styles.mapDesktopColumn
-            }
-          >
             <div
               className={
-                view === "map" ? styles.mobileMapFill : styles.mapDesktopHost
+                view === "map" ? styles.mobileMapHost : styles.mapDesktopColumn
               }
             >
-              <SearchMap
-                hoveredListingId={hoveredListingId}
-                listings={response.listings}
-                mobileFullscreen={view === "map"}
-                onLocate={(point) => {
-                  setSessionOrigin(point);
-                  const route = routeFromDraft(sessionRoute);
-                  void fetchResults(
-                    {
-                      ...query,
-                      bounds: undefined,
-                      cursor: undefined,
-                      origin: point,
-                      radius: undefined,
-                      ...(route ? { route } : { route: undefined }),
-                    },
-                    { history: "none" },
-                  );
-                }}
-                onReturnToList={() => {
-                  setView("list");
-                  trackSearchUiEvent("list_open");
-                  requestAnimationFrame(() =>
-                    mobileMapButton.current?.focus(),
-                  );
-                }}
-                onSelectListing={(listingId) => {
-                  const listing = response.listings.find(
-                    (item) => item.id === listingId,
-                  );
-                  if (listing) {
-                    selectListing(listing, true);
-                    setMapSheetSnap((current) =>
-                      current === "hidden" ? "compact" : current,
+              <div
+                className={
+                  view === "map" ? styles.mobileMapFill : styles.mapDesktopHost
+                }
+              >
+                <SearchMap
+                  hoveredListingId={hoveredListingId}
+                  listings={response.listings}
+                  mobileFullscreen={view === "map"}
+                  onLocate={(point) => {
+                    setSessionOrigin(point);
+                    const route = routeFromDraft(sessionRoute);
+                    void fetchResults(
+                      {
+                        ...query,
+                        bounds: undefined,
+                        cursor: undefined,
+                        origin: point,
+                        radius: undefined,
+                        ...(route ? { route } : { route: undefined }),
+                      },
+                      { history: "none" },
                     );
-                  }
-                }}
-                resultBounds={response.resultBounds}
-                selectedListingId={selectedListingId}
-              />
+                  }}
+                  onReturnToList={() => {
+                    setView("list");
+                    trackSearchUiEvent("list_open");
+                    requestAnimationFrame(() =>
+                      mobileMapButton.current?.focus(),
+                    );
+                  }}
+                  onSelectListing={(listingId) => {
+                    const listing = response.listings.find(
+                      (item) => item.id === listingId,
+                    );
+                    if (listing) {
+                      selectListing(listing, true);
+                      setMapSheetSnap((current) =>
+                        current === "hidden" ? "compact" : current,
+                      );
+                    }
+                  }}
+                  resultBounds={response.resultBounds}
+                  selectedListingId={selectedListingId}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {view === "map" && response?.listings.length ? (
-        <MapResultsSheet
-          activeCategories={query.categories}
-          filterCount={filterCount}
-          listings={response.listings}
-          onCategorySelect={(category) =>
-            updatePublicState({ category: category || undefined })
-          }
-          onOpenFilters={() => setFiltersOpen(true)}
-          onSearchCommit={(text) =>
-            updatePublicState({ q: text || undefined }, "replace")
-          }
-          onSelect={(listing) => selectListing(listing)}
-          onSnapChange={setMapSheetSnap}
-          onSortChange={(sort) => updatePublicState({ sort })}
-          searchText={query.text ?? ""}
-          selectedSlug={selectedSlug}
-          snap={mapSheetSnap}
-          sort={query.sort}
-          tripContext={tripContext}
-        />
-      ) : null}
+        {view === "map" && response ? (
+          <MapResultsSheet
+            activeCategories={query.categories}
+            emptyDiagnostics={
+              response.totalCount === 0
+                ? response.diagnostics.failedConstraints
+                : undefined
+            }
+            filterCount={filterCount}
+            listings={response.listings}
+            onCategorySelect={(category) =>
+              updatePublicState({ category: category || undefined })
+            }
+            onClearFilters={() => updatePublicState(clearableParams())}
+            onOpenFilters={() => setFiltersOpen(true)}
+            onSearchCommit={(text) =>
+              updatePublicState({ q: text || undefined }, "replace")
+            }
+            onSelect={(listing) => selectListing(listing)}
+            onSnapChange={setMapSheetSnap}
+            onSortChange={(sort) => updatePublicState({ sort })}
+            searchText={query.text ?? ""}
+            selectedSlug={selectedSlug}
+            snap={mapSheetSnap}
+            sort={query.sort}
+            tripContext={tripContext}
+          />
+        ) : null}
 
-      {nearMatches && nearMatches.totalCount > 0 ? (
-        <section aria-labelledby="near-matches" className="mt-8 border-t pt-6">
-          <h2 className="text-lg font-semibold" id="near-matches">
-            Near matches
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            These do not meet every selected condition.{" "}
-            {response?.diagnostics.failedConstraints[0]}
-          </p>
-          <div className={cn("mt-4", styles.resultsList, styles.resultsGrid)}>
-            {nearMatches.listings.map((listing) => (
-              <SearchResultCard
-                isSelected={selectedSlug === listing.slug}
-                key={listing.id}
-                listing={listing}
-                onSelect={() => selectListing(listing)}
-                tripContext={undefined}
-              />
-            ))}
+        {response?.nextCursor ? (
+          <div className="mt-6 flex justify-center">
+            <Button
+              disabled={isLoading}
+              onClick={() => {
+                void fetchResults(
+                  { ...query, cursor: response.nextCursor ?? undefined },
+                  { history: "none", append: true },
+                );
+              }}
+              type="button"
+              variant="secondary"
+            >
+              {isLoading ? (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="h-4 w-4 animate-spin"
+                />
+              ) : null}
+              Load more places
+            </Button>
           </div>
-        </section>
-      ) : null}
-
-      {response?.nextCursor ? (
-        <div className="mt-6 flex justify-center">
-          <Button
-            disabled={isLoading}
-            onClick={() => {
-              void fetchResults(
-                { ...query, cursor: response.nextCursor ?? undefined },
-                { history: "none", append: true },
-              );
-            }}
-            type="button"
-            variant="secondary"
-          >
-            {isLoading ? (
-              <LoaderCircle
-                aria-hidden="true"
-                className="h-4 w-4 animate-spin"
-              />
-            ) : null}
-            Load more places
-          </Button>
-        </div>
-      ) : null}
-
+        ) : null}
       </div>
 
-      {view === "list" && response?.listings.length ? (
+      {view === "list" && response ? (
         <div className={styles.mobileMapDock}>
           <button
-            aria-label={`Show map with ${response.totalCount} matching places`}
+            aria-label={
+              response.totalCount
+                ? `Show map with ${response.totalCount} matching places`
+                : "Show map"
+            }
             className={styles.mobileMapButton}
             onClick={() => {
               if (Date.now() < ignoreClickUntil.current) return;
@@ -697,7 +725,7 @@ export function SearchWorkspace({ initialQuery, initialResponse }: Props) {
           current={new URLSearchParams(windowSafeSearch())}
           facets={response?.facets ?? null}
           hasOrigin={Boolean(sessionOrigin)}
-              onApply={({ updates, route, clearOrphans }) => {
+          onApply={({ updates, route, clearOrphans }) => {
             setFiltersOpen(false);
             trackSearchUiEvent("filter_apply");
             const nextRoute = route ?? emptyRouteDraft();
@@ -864,11 +892,7 @@ function SearchComposer({
           <Search aria-hidden="true" />
         </button>
         {focused && suggestions.length ? (
-          <ul
-            className={styles.suggestions}
-            id={suggestionsId}
-            role="listbox"
-          >
+          <ul className={styles.suggestions} id={suggestionsId} role="listbox">
             {suggestions.map((suggestion, index) => (
               <li
                 aria-selected={activeIndex === index}
@@ -1101,7 +1125,8 @@ function suppressNextClick(durationMs = 450) {
 }
 
 function readSafeAreaBottom() {
-  if (typeof window === "undefined" || typeof document === "undefined") return 0;
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return 0;
   const probe = document.createElement("div");
   probe.style.cssText =
     "position:fixed;bottom:0;padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none";
@@ -1119,10 +1144,7 @@ function mapSheetHeights(viewportHeight: number, safeBottom: number) {
   return {
     hidden: hiddenContent + Math.max(safeBottom, 8),
     compact: compactContent + Math.max(safeBottom, 8),
-    expanded: Math.min(
-      Math.round(viewportHeight * 0.72),
-      viewportHeight - 48,
-    ),
+    expanded: Math.min(Math.round(viewportHeight * 0.72), viewportHeight - 48),
   } as const;
 }
 
@@ -1181,6 +1203,8 @@ function MapResultsSheet({
   onSearchCommit,
   filterCount,
   onOpenFilters,
+  onClearFilters,
+  emptyDiagnostics,
   activeCategories,
   onCategorySelect,
   sort,
@@ -1196,6 +1220,8 @@ function MapResultsSheet({
   onSearchCommit: (text: string) => void;
   filterCount: number;
   onOpenFilters: () => void;
+  onClearFilters?: () => void;
+  emptyDiagnostics?: string[];
   activeCategories?: SearchQuery["categories"];
   onCategorySelect: (category: string | undefined) => void;
   sort: SearchQuery["sort"];
@@ -1217,9 +1243,7 @@ function MapResultsSheet({
     () => mapSheetHeights(viewportHeight, safeBottom),
     [safeBottom, viewportHeight],
   );
-  const [height, setHeight] = useState(() =>
-    mapSheetHeights(800, 8).compact,
-  );
+  const [height, setHeight] = useState(() => mapSheetHeights(800, 8).compact);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -1333,11 +1357,15 @@ function MapResultsSheet({
               <strong>Browse places</strong>
               <span>{listings.length} matches on the map</span>
             </span>
-            <ChevronUp aria-hidden="true" className={styles.mapSheetNeedleChevron} />
+            <ChevronUp
+              aria-hidden="true"
+              className={styles.mapSheetNeedleChevron}
+            />
           </span>
         ) : (
           <span className={styles.mapSheetSummary}>
-            {listings.length} {listings.length === 1 ? "place" : "places"} on the map
+            {listings.length} {listings.length === 1 ? "place" : "places"} on
+            the map
           </span>
         )}
       </div>
@@ -1364,7 +1392,9 @@ function MapResultsSheet({
                 >
                   <SlidersHorizontal aria-hidden="true" />
                   {filterCount ? (
-                    <span className={styles.filterCountBadge}>{filterCount}</span>
+                    <span className={styles.filterCountBadge}>
+                      {filterCount}
+                    </span>
                   ) : null}
                 </button>
                 <MenuSelect
@@ -1384,7 +1414,29 @@ function MapResultsSheet({
             </div>
           ) : null}
 
-          {expandedMode ? (
+          {listings.length === 0 ? (
+            <div className={styles.mapSheetEmpty}>
+              <p className={styles.mapSheetEmptyTitle}>No exact matches</p>
+              <p className={styles.mapSheetEmptyCopy}>
+                {emptyDiagnostics?.[0] ??
+                  "No exact listings match these filters."}
+              </p>
+              <div className={styles.mapSheetEmptyActions}>
+                <Button onClick={onOpenFilters} type="button">
+                  Edit filters
+                </Button>
+                {onClearFilters ? (
+                  <Button
+                    onClick={onClearFilters}
+                    type="button"
+                    variant="secondary"
+                  >
+                    Clear all
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : expandedMode ? (
             <div className={styles.mapSheetExpandedList} ref={scrollerRef}>
               {listings.map((listing) => (
                 <MapSheetRowCard
@@ -1434,7 +1486,10 @@ function MapSheetCard({
 
   return (
     <article
-      className={cn(styles.mapSheetCard, isSelected && styles.mapSheetCardActive)}
+      className={cn(
+        styles.mapSheetCard,
+        isSelected && styles.mapSheetCardActive,
+      )}
       data-sheet-slug={listing.slug}
     >
       <button
@@ -1505,7 +1560,9 @@ function MapSheetCard({
             ) : listing.startingPrice ? (
               <>
                 <strong>{formatMoney(listing.startingPrice.amount)}</strong>
-                <span className={styles.mapSheetCardPriceHint}>starting at</span>
+                <span className={styles.mapSheetCardPriceHint}>
+                  starting at
+                </span>
               </>
             ) : (
               <strong>Price on request</strong>
@@ -1544,7 +1601,10 @@ function MapSheetRowCard({
 
   return (
     <article
-      className={cn(styles.mapSheetRowCard, isSelected && styles.mapSheetCardActive)}
+      className={cn(
+        styles.mapSheetRowCard,
+        isSelected && styles.mapSheetCardActive,
+      )}
       data-sheet-slug={listing.slug}
     >
       <button
@@ -1585,7 +1645,9 @@ function MapSheetRowCard({
             {listing.area ?? "Area not listed"}
           </span>
           {listing.matchReasons[0] ? (
-            <span className={styles.mapSheetCardCopy}>{listing.matchReasons[0]}</span>
+            <span className={styles.mapSheetCardCopy}>
+              {listing.matchReasons[0]}
+            </span>
           ) : null}
           {tags.length ? (
             <span className={styles.mapSheetCardTags}>
@@ -1606,13 +1668,17 @@ function MapSheetRowCard({
                   </span>
                   <strong>{formatMoney(listing.matchedRate.total)}</strong>
                   <span className={styles.mapSheetCardPriceHint}>
-                    {tripContext ? `for ${tripContext}` : listing.matchedRate.name}
+                    {tripContext
+                      ? `for ${tripContext}`
+                      : listing.matchedRate.name}
                   </span>
                 </>
               ) : listing.startingPrice ? (
                 <>
                   <strong>{formatMoney(listing.startingPrice.amount)}</strong>
-                  <span className={styles.mapSheetCardPriceHint}>starting at</span>
+                  <span className={styles.mapSheetCardPriceHint}>
+                    starting at
+                  </span>
                 </>
               ) : (
                 <strong>Price on request</strong>
@@ -1829,21 +1895,28 @@ function EmptySearch({
   onEdit: () => void;
 }) {
   return (
-    <section className={cn("mt-3", styles.emptyState)}>
-      <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-secondary text-primary">
-        <Search aria-hidden="true" className="h-5 w-5" />
-      </span>
-      <h2 className="mt-4 text-2xl font-semibold">No exact matches</h2>
-      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-        {diagnostics[0] ?? "No exact listings match these filters."}
-      </p>
-      <div className="mt-4 flex justify-center gap-2">
-        <Button onClick={onEdit} type="button">
-          Edit filters
-        </Button>
-        <Button onClick={onClear} type="button" variant="secondary">
-          Clear all
-        </Button>
+    <section className={styles.emptyState}>
+      <div className={styles.emptyStateArtwork} aria-hidden="true">
+        <Image
+          alt=""
+          priority
+          height={374}
+          sizes="(max-width: 639px) 220px, 280px"
+          src="/search/no-exact-matches-island.png"
+          width={640}
+        />
+      </div>
+      <div className={styles.emptyStateContent}>
+        <h2>No exact matches yet</h2>
+        <p>{diagnostics[0] ?? "No exact listings match these filters."}</p>
+        <div className={styles.emptyStateActions}>
+          <Button onClick={onEdit} type="button">
+            Edit filters
+          </Button>
+          <Button onClick={onClear} type="button" variant="secondary">
+            Start over
+          </Button>
+        </div>
       </div>
     </section>
   );

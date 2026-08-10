@@ -1025,6 +1025,86 @@
   animation: content-in 400ms var(--search-ease) both;
 }
 
+.emptyState {
+  border: 1px solid rgba(8, 127, 120, 0.16);
+  border-radius: 20px;
+  background: #fffdf8;
+  box-shadow: 0 16px 36px rgba(11, 35, 68, 0.08);
+  padding: 34px 16px 22px;
+}
+
+.emptyStateArtwork {
+  display: flex;
+  justify-content: center;
+  width: min(100%, 280px);
+  margin: 0 auto;
+}
+
+.emptyStateArtwork img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.emptyStateContent {
+  display: grid;
+  justify-items: center;
+  padding: 4px 0 0;
+  text-align: center;
+}
+
+.emptyStateContent h2 {
+  margin: 0;
+  color: var(--pd-ink, #0b2344);
+  font-family: var(--search-display);
+  font-size: clamp(24px, 7vw, 30px);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.emptyStateContent p {
+  max-width: 470px;
+  margin: 9px 0 0;
+  color: var(--pd-muted, #526071);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.emptyStateActions {
+  display: grid;
+  width: min(100%, 280px);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.emptyStateActions > button {
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .emptyState {
+    padding-block: 46px 34px;
+  }
+
+  .emptyStateArtwork {
+    width: 320px;
+  }
+
+  .emptyStateContent {
+    padding-top: 6px;
+  }
+
+  .emptyStateActions {
+    display: flex;
+    width: auto;
+  }
+
+  .emptyStateActions > button {
+    width: auto;
+  }
+}
+
 .skeletonCard {
   overflow: hidden;
   border: 1px solid var(--search-border);
@@ -1830,6 +1910,35 @@
 
 .mapSheetCarousel::-webkit-scrollbar {
   display: none;
+}
+
+.mapSheetEmpty {
+  display: grid;
+  gap: 10px;
+  padding: 18px 16px 20px;
+  text-align: center;
+}
+
+.mapSheetEmptyTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--pd-ink, #0b2344);
+}
+
+.mapSheetEmptyCopy {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--muted-foreground, #5b6472);
+}
+
+.mapSheetEmptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .mapSheetExpandedList {
