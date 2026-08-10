@@ -1,5 +1,9 @@
-create extension if not exists postgis;
-create extension if not exists pg_trgm;
+-- Supabase installs PostGIS into `extensions` (not `public`). Keep both schemas
+-- on the search_path so unqualified `geography` / ST_* resolve locally and remote.
+create schema if not exists extensions;
+create extension if not exists postgis with schema extensions;
+create extension if not exists pg_trgm with schema extensions;
+set search_path to public, extensions;
 
 create type user_role as enum ('user', 'moderator', 'admin');
 create type auth_provider as enum ('email', 'google', 'facebook');

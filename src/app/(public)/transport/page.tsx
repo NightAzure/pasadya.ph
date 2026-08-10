@@ -30,6 +30,7 @@ export default async function TransportPage({
   let routes: TransportRoute[] = [];
   let ferries: FerrySchedule[] = [];
   let destinations: TransportDestination[] = [];
+  let initialDestination: TransportDestination | undefined;
   let initialJourney: Journey | null = null;
 
   try {
@@ -42,7 +43,7 @@ export default async function TransportPage({
     const requestedDestination = Array.isArray(params.to)
       ? params.to[0]
       : params.to;
-    const initialDestination =
+    initialDestination =
       destinations.find(
         (destination) => destination.id === requestedDestination,
       ) ?? destinations[0];

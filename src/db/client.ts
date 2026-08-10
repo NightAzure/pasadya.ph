@@ -22,6 +22,8 @@ export const pool =
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
+    // Resolve PostGIS types/functions whether they live in public or extensions.
+    options: "-c search_path=public,extensions",
   });
 
 if (process.env.NODE_ENV !== "production") {

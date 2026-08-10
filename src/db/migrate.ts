@@ -41,6 +41,8 @@ async function run() {
 
     try {
       await client.query("begin");
+      // Supabase PostGIS lives in `extensions`; local Docker usually uses `public`.
+      await client.query("set local search_path to public, extensions");
       await client.query(sqlText);
       await client.query(
         "insert into schema_migrations (filename) values ($1)",

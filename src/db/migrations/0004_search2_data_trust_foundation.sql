@@ -1,6 +1,8 @@
 -- Search 2.0 Phase 2 is additive. Existing address and location columns remain
 -- authoritative for legacy reads until later services explicitly opt into the
 -- structured fields.
+set search_path to public, extensions;
+
 do $$ begin
   create type area_type as enum ('country', 'region', 'province', 'city_municipality', 'island', 'barangay', 'landmark');
 exception when duplicate_object then null;
