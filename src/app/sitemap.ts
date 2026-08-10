@@ -5,15 +5,29 @@ import {
   categoryPathSegments,
   getCollections,
   searchListings,
+  type DiscoveryCollection,
+  type DiscoveryListing,
 } from "@/modules/listings/search";
+
+export const dynamic = "force-dynamic";
 
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [listings, collections] = await Promise.all([
-    searchListings({ limit: 50, sort: "newest" }),
-    getCollections(),
-  ]);
+  let listings: DiscoveryListing[] = [];
+  let collections: DiscoveryCollection[] = [];
+
+  try {
+    [listings, collections] = await Promise.all([
+      searchListings({ limit: 50, sort: "newest" }),
+      getCollections(),
+    ]);
+  } catch (error) {
+    console.warn(
+      "[sitemap] Database unavailable; emitting static routes only.",
+      error instanceof Error ? error.message : error,
+    );
+  }
 
   const staticRoutes = [
     "",
