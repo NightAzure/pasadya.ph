@@ -13,34 +13,53 @@ import {
   getPublishedRoutes,
   getTransportDestinations,
   planJourney,
+  type FerrySchedule,
+  type Journey,
+  type TransportRoute,
 } from "@/modules/transport/service";
+
+type TransportDestination = Awaited<
+  ReturnType<typeof getTransportDestinations>
+>[number];
 
 export default async function TransportPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [routes, ferries, destinations] = await Promise.all([
-    getPublishedRoutes(),
-    getFerrySchedules(),
-    getTransportDestinations(),
-  ]);
-  const params = (await searchParams) ?? {};
-  const requestedDestination = Array.isArray(params.to)
-    ? params.to[0]
-    : params.to;
-  const initialDestination =
-    destinations.find(
-      (destination) => destination.id === requestedDestination,
-    ) ?? destinations[0];
-  const initialJourney = initialDestination
-    ? await planJourney({
-        origin: defaultOrigins[0],
-        originLabel: defaultOrigins[0].label,
-        destination: initialDestination,
-        destinationLabel: initialDestination.label,
-      })
-    : null;
+  let routes: TransportRoute[] = [];
+  let ferries: FerrySchedule[] = [];
+  let destinations: TransportDestination[] = [];
+  let initialJourney: Journey | null = null;
+
+  try {
+    [routes, ferries, destinations] = await Promise.all([
+      getPublishedRoutes(),
+      getFerrySchedules(),
+      getTransportDestinations(),
+    ]);
+    const params = (await searchParams) ?? {};
+    const requestedDestination = Array.isArray(params.to)
+      ? params.to[0]
+      : params.to;
+    const initialDestination =
+      destinations.find(
+        (destination) => destination.id === requestedDestination,
+      ) ?? destinations[0];
+    initialJourney = initialDestination
+      ? await planJourney({
+          origin: defaultOrigins[0],
+          originLabel: defaultOrigins[0].label,
+          destination: initialDestination,
+          destinationLabel: initialDestination.label,
+        })
+      : null;
+  } catch (error) {
+    console.warn(
+      "[TransportPage] Database unavailable; rendering empty transport shell.",
+      error instanceof Error ? error.message : error,
+    );
+  }
 
   return (
     <div className="pb-12">

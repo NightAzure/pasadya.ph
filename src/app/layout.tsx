@@ -57,6 +57,10 @@ function getMetadataBase() {
   }
 }
 
+// Avoid prerendering DB-backed routes during `next build`. Demo deploys often
+// hit unreachable Postgres or an unmigrated schema (e.g. 42P01 undefined_table).
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   metadataBase: getMetadataBase(),
   title: {
