@@ -1,4 +1,6 @@
 -- Search 2.0 Phase 9: materialized transport graph and listing stop access.
+set search_path to public, extensions;
+
 create table if not exists route_edges (
   id uuid primary key default gen_random_uuid(),
   route_id uuid not null references transport_routes(id) on delete cascade,

@@ -1,5 +1,7 @@
 -- Search 2.0 Phase 5: a separate simple-configuration search document keeps
 -- local aliases and structured discovery fields out of the legacy English FTS.
+set search_path to public, extensions;
+
 alter table listings add column if not exists search_vector_simple tsvector;
 create index if not exists listings_search_simple_gin_idx on listings using gin (search_vector_simple);
 create index if not exists areas_name_trgm_idx on areas using gin (name gin_trgm_ops);
